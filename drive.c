@@ -17,7 +17,6 @@
 #include "ev3_port.h"
 #include "ev3_sensor.h"
 #include "ev3_tacho.h"
-
 // WIN32 /////////////////////////////////////////
 #ifdef __WIN32__
 
@@ -40,6 +39,12 @@
 
 #define SPEED_LINEAR 75	  /* Motor speed for linear motion, in percents */
 #define SPEED_CIRCULAR 50 /* ... for circular motion */
+#define HISTORY_LENGTH 200
+
+#define WHEEL_DIAMETER 5.6
+#define PI 3.141592
+#define WHEEL_CONSTANT ((PI * WHEEL_DIAMETER) / 360)
+#define DISTANCE_CONSTANT (1 / WHEEL_CONSTANT)
 
 int max_speed; /* Motor maximal speed */
 
@@ -67,11 +72,24 @@ enum
 	STEP_BACKWARD,
 };
 
+enum
+{
+	STATE_START,
+	STATE_TURN_L1,
+	STATE_FL1,
+	STATE_STILL,
+
+};
+
 int moving;	 /* Current moving */
 int command; /* Command for the 'drive' coroutine */
 int angle;	 /* Angle of rotation */
+int proximity;
+float axle_distance, axle_distance_zero;
+int rel_walk;
+int state;
 
-uint8_t ir, touch, compass; /* Sequence numbers of sensors */
+uint8_t ir, gyro; /* Sequence numbers of sensors */
 enum
 {
 	L,
@@ -138,6 +156,11 @@ static void _stop(void)
 	multi_set_tacho_command_inx(motor, TACHO_STOP);
 }
 
+static void _get_tacho_position(int *pos)
+{
+	get_tacho_position(motor[R], pos);
+}
+
 int app_init(void)
 {
 	char s[16];
@@ -174,136 +197,104 @@ int app_init(void)
 		printf(" use the IR sensor.\n");
 	}
 
-	if (ev3_search_sensor(HT_NXT_COMPASS, &compass, 0))
-	{
-		printf(" use the COMPASS sensor.\n");
-		set_sensor_command(compass, "BEGIN-CAL");
-		sleep(5);
-		set_sensor_command(compass, "END-CAL");
-	}
-
-	/*
-	if ( ev3_search_sensor( LEGO_EV3_TOUCH, &touch, 0 )) {
-		printf( " use the TOUCH sensor.\n" );
-	} else {
-		touch = DESC_LIMIT;
-		printf( " press UP on the EV3 brick.\n" );
-	}
-	printf( "Press BACK on the EV3 brick for EXIT...\n" );*/
+	state = STATE_START;
+	printf("Init State: %d\n", state);
 	return (1);
 }
-int get_average_sensor(uint8_t sensor, int samples){
 
-		int value=0, average=0, i;
+int state_start(int proximity, float walked, float walked_thresh);
 
+int get_average_sensor(uint8_t sensor, int samples)
+{
+
+	int value = 0, average = 0, i;
+
+	get_sensor_value(0, sensor, &value);
+	average += value;
+
+	for (i = 0; i < samples; i++)
+	{
 		get_sensor_value(0, sensor, &value);
-			average += value;
-
-		for (i = 0; i < samples; i++)
-		{
-			get_sensor_value(0, sensor, &value);
-			average = (average + value)/2;
-		}
-		return average;
-	
+		average = (average + value) / 2;
+	}
+	return average;
 }
-CORO_CONTEXT(handle_ir_proximity);
+
 CORO_CONTEXT(drive);
-CORO_CONTEXT(handle_compass);
+CORO_CONTEXT(get_proximity);
+CORO_CONTEXT(get_distance);
+CORO_CONTEXT(DFA);
 
-/* Coroutine of IR proximity handling (self-driving),
-   based on Franz Detro drive_test.cpp */
-CORO_DEFINE(handle_ir_proximity)
+CORO_DEFINE(get_proximity)
 {
-	CORO_LOCAL int front, prox;
-
 	CORO_BEGIN();
-	for (;;)
+	while (1)
 	{
-		/* Waiting self-driving mode */
-
-		CORO_WAIT(mode == MODE_AUTO);
-		prox = 0;
-		prox=get_average_sensor(ir, 200);
-		
-		printf("Proximity %d\n", prox);
-		if (prox == 0)
-		{
-			/* Oops! Stop the vehicle */
-			command = MOVE_NONE;
-		}
-		else if (prox < 120 || prox == 2550)
-		{ /* Need for detour... */
-			front = prox;
-			/* Look to the left */
-			angle = -30;
-			do
-			{
-				command = TURN_ANGLE;
-				CORO_WAIT(command == MOVE_NONE || command == TURN_ANGLE_COMPASS);
-
-				prox = 0;
-				prox=get_average_sensor(ir, 200);
-				if (prox < front)
-				{
-					if (angle < 0)
-					{
-						/* Still looking to the left - look to the right */
-						angle = 60;
-					}
-					else
-					{
-						/* Step back */
-						command = STEP_BACKWARD;
-						CORO_WAIT(command == MOVE_NONE || TURN_ANGLE_COMPASS);
-					}
-				}
-			} while ((prox > 0) && (prox < 120) && (mode == MODE_AUTO));
-		}
-		else
-		{
-			/* Track is clear - Go! */
-			 command = MOVE_FORWARD;
-		}
+		proximity = get_average_sensor(ir, 1);
 		CORO_YIELD();
 	}
 	CORO_END();
 }
 
-
-
-CORO_DEFINE(handle_compass)
+CORO_DEFINE(get_distance)
 {
-	CORO_LOCAL int direction;
+	CORO_LOCAL int pos;
+	CORO_BEGIN();
+	while (1)
+	{
+
+		_get_tacho_position(&pos);
+		axle_distance = (float)(pos - axle_distance_zero) * WHEEL_CONSTANT;
+		CORO_YIELD();
+	}
+	CORO_END();
+}
+
+CORO_DEFINE(DFA)
+{
 
 	CORO_BEGIN();
-	for (;;)
+
+	while (1)
 	{
-		/* Waiting self-driving mode */
-
-		CORO_WAIT(mode == MODE_AUTO);
-		direction = 0;
-
-		direction=get_average_sensor(compass, 200);
-		while (direction < 340)
+		switch (state)
 		{
-			
-			printf("%d\n", direction);
-			direction=get_average_sensor(compass, 200);
-			
-				angle=-5;
-			
-			command = TURN_ANGLE_COMPASS;
+
+		case STATE_START:
+
+			state = state_start(proximity, axle_distance, 25);
+			rel_walk = (int)(25 * DISTANCE_CONSTANT);
+			command = MOVE_FORWARD;
+
+			break;
+
+		case STATE_TURN_L1:
+			angle = 60;
+			command = TURN_ANGLE;
 			CORO_WAIT(command == MOVE_NONE);
-		}
+			state = STATE_FL1;
+			break;
 
-		command = MOVE_FORWARD;
+		case STATE_FL1:
+
+			break;
+
+		case STATE_STILL:
+
+			command = MOVE_NONE;
+
+			break;
+
+		default:
+
+			break;
+		}
 
 		CORO_YIELD();
 	}
+
 	CORO_END();
 }
-
 /* Coroutine of control the motors */
 CORO_DEFINE(drive)
 {
@@ -329,11 +320,11 @@ CORO_DEFINE(drive)
 			break;
 
 		case MOVE_FORWARD:
-			_run_forever(-speed_linear, -speed_linear);
+			_run_to_rel_pos(speed_linear, rel_walk, speed_linear, rel_walk);
 			break;
 
 		case MOVE_BACKWARD:
-			_run_forever(speed_linear, speed_linear);
+			_run_forever(-speed_linear, -speed_linear);
 			break;
 
 		case TURN_LEFT:
@@ -417,16 +408,29 @@ int main(void)
 	*/
 
 	app_alive = app_init();
+	_get_tacho_position(&axle_distance_zero);
 	while (app_alive)
 	{
-	//	CORO_CALL(handle_compass);
-		CORO_CALL(handle_ir_proximity);
+		CORO_CALL(get_proximity);
+		CORO_CALL(get_distance);
+		CORO_CALL(DFA);
 		CORO_CALL(drive);
 
-		Sleep(10);
+		Sleep(50);
 	}
 	ev3_uninit();
 	printf("*** ( EV3 ) Bye! ***\n");
 
 	return (0);
+}
+
+int state_start(int proximity, float walked, float walked_thresh)
+{
+
+	if (walked >= walked_thresh)
+	{
+		return STATE_TURN_L1;
+	}
+
+	return STATE_START;
 }
