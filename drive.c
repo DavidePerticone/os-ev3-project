@@ -97,6 +97,7 @@ enum
 int moving;	 /* Current moving */
 int command; /* Command for the 'drive' coroutine */
 int angle;	 /* Angle of rotation */
+int gyro_angle, gyro_zero_angle;
 int proximity;
 float axle_distance;
 int axle_zero_angle;
@@ -211,6 +212,11 @@ int app_init(void)
 		printf(" use the IR sensor.\n");
 	}
 
+	if (ev3_search_sensor(LEGO_EV3_GYRO, &gyro, 0))
+	{
+		printf(" use the GYRO sensor.\n");
+	}
+
 	state = STATE_START;
 	printf("Init State: %d\n", state);
 	return (1);
@@ -240,6 +246,7 @@ int get_average_sensor(uint8_t sensor, int samples)
 CORO_CONTEXT(drive);
 CORO_CONTEXT(get_proximity);
 CORO_CONTEXT(get_distance);
+CORO_CONTEXT(get_angle);
 CORO_CONTEXT(DFA);
 
 CORO_DEFINE(get_proximity)
@@ -262,6 +269,18 @@ CORO_DEFINE(get_distance)
 
 		_get_tacho_position(&pos);
 		axle_distance = (float)(pos - axle_zero_angle) * WHEEL_CONSTANT;
+		CORO_YIELD();
+	}
+	CORO_END();
+}
+
+CORO_DEFINE(get_angle) {
+	CORO_LOCAL int temp_angle;
+	CORO_BEGIN();
+	for (;;) {
+		get_sensor_value(0, gyro, &temp_angle);
+		gyro_angle = -(temp_angle - gyro_zero_angle);
+		printf("Gyro angle: %d\n", gyro_angle);
 		CORO_YIELD();
 	}
 	CORO_END();
@@ -519,11 +538,17 @@ int main(void)
 	*/
 
 	app_alive = app_init();
+<<<<<<< HEAD
 	_get_tacho_position(&axle_zero_angle);
+=======
+	_get_tacho_position(&axle_distance_zero); /* Reset the travelled distance to 0 */
+	get_sensor_value(0, gyro, &gyro_zero_angle); /* Reset the starting angle to 0 */
+>>>>>>> 1f47f76eb0a7386e64a2ad5711d2d877bd94543d
 	while (app_alive)
 	{
 		CORO_CALL(get_proximity);
 		CORO_CALL(get_distance);
+		CORO_CALL(get_angle);
 		CORO_CALL(DFA);
 		CORO_CALL(drive);
 
