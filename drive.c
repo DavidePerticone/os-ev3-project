@@ -538,12 +538,8 @@ int main(void)
 	*/
 
 	app_alive = app_init();
-<<<<<<< HEAD
-	_get_tacho_position(&axle_zero_angle);
-=======
 	_get_tacho_position(&axle_distance_zero); /* Reset the travelled distance to 0 */
 	get_sensor_value(0, gyro, &gyro_zero_angle); /* Reset the starting angle to 0 */
->>>>>>> 1f47f76eb0a7386e64a2ad5711d2d877bd94543d
 	while (app_alive)
 	{
 		CORO_CALL(get_proximity);
