@@ -46,6 +46,9 @@
 #define WHEEL_CONSTANT ((PI * WHEEL_DIAMETER) / 360)
 #define DISTANCE_CONSTANT (1 / WHEEL_CONSTANT)
 
+#define DISTANCE_MAX 30
+#define DISTANCE_MIN 10
+
 #define LS1 30
 #define SS1 20
 #define LS2 30
@@ -92,6 +95,7 @@ enum
 	STATE_FORWARD5,
 	STATE_TURN_L5,
 	STATE_FORWARD6,
+	STATE_PROXIMITY_CORRECTION,
 };
 
 int moving;	 /* Current moving */
@@ -102,7 +106,7 @@ int proximity;
 float axle_distance;
 int axle_zero_angle;
 int rel_walk;
-int state;
+int state, old_state;
 
 uint8_t ir, gyro; /* Sequence numbers of sensors */
 enum
@@ -399,6 +403,25 @@ CORO_DEFINE(DFA)
 			rel_walk = (int)(LS2 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
+		case STATE_PROXIMITY_CORRECTION:
+			while (proximity >= DISTANCE_MAX || proximity <= DISTANCE_MIN)
+			{
+				while (proximity >= DISTANCE_MAX)
+				{
+					// TODO: Sto assumendo l'inerzia, aggiungere un epsilon in più?
+					rel_walk = (int)((proximity - DISTANCE_MAX) * DISTANCE_CONSTANT);
+					command = MOVE_FORWARD;
+					CORO_WAIT(command == MOVE_NONE);
+				}
+				// proximity is updated here
+				while (proximity <= DISTANCE_MIN)
+				{
+					rel_walk = (int)((-DISTANCE_MIN) * DISTANCE_CONSTANT);
+					command = MOVE_FORWARD;
+					CORO_WAIT(command == MOVE_NONE);
+				}
+			}
+			break;
 
 		case STATE_STILL:
 
@@ -568,4 +591,3 @@ int state_forward(int proximity, float walked, float walked_thresh, int state_wi
 
 	return state_within_thresh;
 }
-
