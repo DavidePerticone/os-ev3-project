@@ -223,9 +223,6 @@ int app_init(void)
 }
 
 int state_start(int proximity, float walked, float walked_thresh);
-int state_forward1(int proximity, float walked, float walked_thresh);
-int state_forward2(int proximity, float walked, float walked_thresh);
-int state_forward3(int proximity, float walked, float walked_thresh);
 int state_forward(int proximity, float walked, float walked_thresh, int state_within_thresh, int state_after_tresh);
 int get_average_sensor(uint8_t sensor, int samples)
 {
@@ -274,10 +271,12 @@ CORO_DEFINE(get_distance)
 	CORO_END();
 }
 
-CORO_DEFINE(get_angle) {
+CORO_DEFINE(get_angle)
+{
 	CORO_LOCAL int temp_angle;
 	CORO_BEGIN();
-	for (;;) {
+	for (;;)
+	{
 		get_sensor_value(0, gyro, &temp_angle);
 		gyro_angle = -(temp_angle - gyro_zero_angle);
 		printf("Gyro angle: %d\n", gyro_angle);
@@ -305,6 +304,7 @@ CORO_DEFINE(DFA)
 			break;
 
 		case STATE_TURN_L1:
+
 			printf("STATE_TURN_L1\n");
 			angle = 60;
 			command = TURN_ANGLE;
@@ -315,14 +315,13 @@ CORO_DEFINE(DFA)
 
 		case STATE_FORWARD1:
 			printf("STATE_FORWARD1\n");
-			state = state_forward1(proximity, axle_distance, SS1);
+			state = state_forward(proximity, axle_distance, SS1, STATE_FORWARD1, STATE_TURN_L2);
 			rel_walk = (int)(SS1 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
 
 		case STATE_TURN_L2:
 			printf("STATE_TURN_L2\n");
-
 			angle = 60;
 			command = TURN_ANGLE;
 			CORO_WAIT(command == MOVE_NONE);
@@ -332,14 +331,13 @@ CORO_DEFINE(DFA)
 
 		case STATE_FORWARD2:
 			printf("STATE_FORWARD2\n");
-			state = state_forward2(proximity, axle_distance, LS2);
+			state = state_forward(proximity, axle_distance, LS2, STATE_FORWARD2, STATE_TURN_L3);
 			rel_walk = (int)(LS2 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
 
 		case STATE_TURN_L3:
 			printf("STATE_TURN_L3\n");
-
 			angle = 60;
 			command = TURN_ANGLE;
 			CORO_WAIT(command == MOVE_NONE);
@@ -349,15 +347,13 @@ CORO_DEFINE(DFA)
 
 		case STATE_FORWARD3:
 			printf("STATE_FORWARD3\n");
-
-			state = state_forward3(proximity, axle_distance, LS2);
+			state = state_forward(proximity, axle_distance, LS2, STATE_FORWARD3, STATE_TURN_R1);
 			rel_walk = (int)(LS2 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
 
 		case STATE_TURN_R1:
 			printf("STATE_TURN_R1\n");
-
 			angle = -60;
 			command = TURN_ANGLE;
 			CORO_WAIT(command == MOVE_NONE);
@@ -367,7 +363,6 @@ CORO_DEFINE(DFA)
 
 		case STATE_FORWARD4:
 			printf("STATE_FORWARD4\n");
-
 			state = state_forward(proximity, axle_distance, LS2, STATE_FORWARD4, STATE_TURN_L4);
 			rel_walk = (int)(LS2 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
@@ -375,7 +370,6 @@ CORO_DEFINE(DFA)
 
 		case STATE_TURN_L4:
 			printf("STATE_TURN_L4\n");
-
 			angle = 60;
 			command = TURN_ANGLE;
 			CORO_WAIT(command == MOVE_NONE);
@@ -385,7 +379,6 @@ CORO_DEFINE(DFA)
 
 		case STATE_FORWARD5:
 			printf("STATE_FORWARD5\n");
-
 			state = state_forward(proximity, axle_distance, LS2, STATE_FORWARD5, STATE_TURN_L5);
 			rel_walk = (int)(LS2 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
@@ -393,7 +386,6 @@ CORO_DEFINE(DFA)
 
 		case STATE_TURN_L5:
 			printf("STATE_TURN_L5\n");
-
 			angle = 60;
 			command = TURN_ANGLE;
 			CORO_WAIT(command == MOVE_NONE);
@@ -403,7 +395,6 @@ CORO_DEFINE(DFA)
 
 		case STATE_FORWARD6:
 			printf("STATE_FORWARD6\n");
-
 			state = state_forward(proximity, axle_distance, LS2, STATE_FORWARD6, STATE_STILL);
 			rel_walk = (int)(LS2 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
@@ -538,7 +529,7 @@ int main(void)
 	*/
 
 	app_alive = app_init();
-	_get_tacho_position(&axle_distance_zero); /* Reset the travelled distance to 0 */
+	_get_tacho_position(&axle_zero_angle);		 /* Reset the travelled distance to 0 */
 	get_sensor_value(0, gyro, &gyro_zero_angle); /* Reset the starting angle to 0 */
 	while (app_alive)
 	{
@@ -567,39 +558,6 @@ int state_start(int proximity, float walked, float walked_thresh)
 	return STATE_START;
 }
 
-int state_forward1(int proximity, float walked, float walked_thresh)
-{
-
-	if (walked >= walked_thresh)
-	{
-		return STATE_TURN_L2;
-	}
-
-	return STATE_FORWARD1;
-}
-
-int state_forward2(int proximity, float walked, float walked_thresh)
-{
-
-	if (walked >= walked_thresh)
-	{
-		return STATE_TURN_L3;
-	}
-
-	return STATE_FORWARD2;
-}
-
-int state_forward3(int proximity, float walked, float walked_thresh)
-{
-
-	if (walked >= walked_thresh)
-	{
-		return STATE_TURN_R1;
-	}
-
-	return STATE_FORWARD3;
-}
-
 int state_forward(int proximity, float walked, float walked_thresh, int state_within_thresh, int state_after_tresh)
 {
 
@@ -610,3 +568,4 @@ int state_forward(int proximity, float walked, float walked_thresh, int state_wi
 
 	return state_within_thresh;
 }
+
