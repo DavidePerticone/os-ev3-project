@@ -46,10 +46,11 @@
 #define WHEEL_CONSTANT ((PI * WHEEL_DIAMETER) / 360)
 #define DISTANCE_CONSTANT (1 / WHEEL_CONSTANT)
 
-#define DISTANCE_MAX 30
-#define DISTANCE_MIN 10
+#define DISTANCE_MAX 300 /* 30 cm */ 
+#define DISTANCE_MIN 100 /* 10 cm */
+#define BACKWARDS_STEP 5 /* 5 cm */
 
-#define LS1 30
+#define LS1 40
 #define SS1 20
 #define LS2 30
 
@@ -71,6 +72,7 @@ enum
 {
 	MOVE_NONE,
 	MOVE_FORWARD,
+	MOVE_FORWARD_CORRECTION,
 	MOVE_BACKWARD,
 	TURN_LEFT,
 	TURN_RIGHT,
@@ -106,7 +108,7 @@ int proximity;
 float axle_distance;
 int axle_zero_angle;
 int rel_walk;
-int state, old_state;
+int state, next_state;
 
 uint8_t ir, gyro; /* Sequence numbers of sensors */
 enum
@@ -255,7 +257,7 @@ CORO_DEFINE(get_proximity)
 	CORO_BEGIN();
 	while (1)
 	{
-		proximity = get_average_sensor(ir, 1);
+		proximity = get_average_sensor(ir, 1) % 2550;
 		CORO_YIELD();
 	}
 	CORO_END();
@@ -283,7 +285,7 @@ CORO_DEFINE(get_angle)
 	{
 		get_sensor_value(0, gyro, &temp_angle);
 		gyro_angle = -(temp_angle - gyro_zero_angle);
-		printf("Gyro angle: %d\n", gyro_angle);
+		//printf("Gyro angle: %d\n", gyro_angle);
 		CORO_YIELD();
 	}
 	CORO_END();
@@ -304,7 +306,6 @@ CORO_DEFINE(DFA)
 			state = state_start(proximity, axle_distance, LS1);
 			rel_walk = (int)(LS1 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
-
 			break;
 
 		case STATE_TURN_L1:
@@ -403,24 +404,26 @@ CORO_DEFINE(DFA)
 			rel_walk = (int)(LS2 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
+
 		case STATE_PROXIMITY_CORRECTION:
 			while (proximity >= DISTANCE_MAX || proximity <= DISTANCE_MIN)
 			{
 				while (proximity >= DISTANCE_MAX)
 				{
 					// TODO: Sto assumendo l'inerzia, aggiungere un epsilon in più?
-					rel_walk = (int)((proximity - DISTANCE_MAX) * DISTANCE_CONSTANT);
-					command = MOVE_FORWARD;
+					rel_walk = (int)((proximity - DISTANCE_MAX)/10 * DISTANCE_CONSTANT);
+					command = MOVE_FORWARD_CORRECTION;
 					CORO_WAIT(command == MOVE_NONE);
 				}
 				// proximity is updated here
 				while (proximity <= DISTANCE_MIN)
 				{
-					rel_walk = (int)((-DISTANCE_MIN) * DISTANCE_CONSTANT);
-					command = MOVE_FORWARD;
+					rel_walk = (int)((-BACKWARDS_STEP) * DISTANCE_CONSTANT);
+					command = MOVE_FORWARD_CORRECTION;
 					CORO_WAIT(command == MOVE_NONE);
 				}
 			}
+			state = next_state;
 			break;
 
 		case STATE_STILL:
@@ -460,6 +463,11 @@ CORO_DEFINE(drive)
 
 		case MOVE_NONE:
 			_stop();
+			_wait_stopped = 1;
+			break;
+
+		case MOVE_FORWARD_CORRECTION:
+			_run_to_rel_pos(speed_linear, rel_walk, speed_linear, rel_walk);
 			_wait_stopped = 1;
 			break;
 
@@ -575,6 +583,11 @@ int state_start(int proximity, float walked, float walked_thresh)
 
 	if (walked >= walked_thresh)
 	{
+		command = MOVE_NONE;
+		if (proximity >= DISTANCE_MAX || proximity <= DISTANCE_MIN) {
+			next_state = STATE_TURN_L1;
+			return STATE_PROXIMITY_CORRECTION;
+		}
 		return STATE_TURN_L1;
 	}
 
