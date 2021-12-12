@@ -46,8 +46,8 @@
 #define WHEEL_CONSTANT ((PI * WHEEL_DIAMETER) / 360)
 #define DISTANCE_CONSTANT (1 / WHEEL_CONSTANT)
 
-#define DISTANCE_MAX 100 /* 10 cm */
-#define DISTANCE_MIN 50 /* 5 cm */
+#define DISTANCE_MAX 300 /* 10 cm */
+#define DISTANCE_MIN 200 /* 5 cm */
 #define BACKWARDS_STEP 5 /* 5 cm */
 
 #define LS1 40
@@ -263,6 +263,7 @@ CORO_DEFINE(get_proximity)
 	CORO_BEGIN();
 	while (1)
 	{
+		sleep(400);
 		proximity = get_average_sensor(ir, 10) % 2550;
 		CORO_YIELD();
 	}
@@ -292,6 +293,7 @@ CORO_DEFINE(get_angle)
 		get_sensor_value(0, gyro, &temp_angle);
 		gyro_angle = -(temp_angle - gyro_zero_angle);
 		printf("Gyro angle: %d\n", gyro_angle);
+		printf("State: %d\n", state);
 		CORO_YIELD();
 	}
 	CORO_END();
@@ -526,9 +528,9 @@ CORO_DEFINE(drive)
 
 		case TURN_ANGLE:
 			if (angle >= 0) {
-			_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(-angle), speed_circular, DEGREE_TO_COUNT(0));
-			} else {
 			_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(0), speed_circular, DEGREE_TO_COUNT(angle));
+			} else {
+			_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(-angle), speed_circular, DEGREE_TO_COUNT(0));
 
 			}
 			_wait_stopped = 1;
