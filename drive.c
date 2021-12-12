@@ -46,8 +46,8 @@
 #define WHEEL_CONSTANT ((PI * WHEEL_DIAMETER) / 360)
 #define DISTANCE_CONSTANT (1 / WHEEL_CONSTANT)
 
-#define DISTANCE_MAX 100 /* 10 cm */
-#define DISTANCE_MIN 50 /* 5 cm */
+#define DISTANCE_MAX 150 /* 10 cm */
+#define DISTANCE_MIN 100 /* 5 cm */
 #define BACKWARDS_STEP 5 /* 5 cm */
 
 #define LS1 40
@@ -263,6 +263,7 @@ CORO_DEFINE(get_proximity)
 	CORO_BEGIN();
 	while (1)
 	{
+		Sleep(100);
 		proximity = get_average_sensor(ir, 10) % 2550;
 		CORO_YIELD();
 	}
@@ -291,7 +292,7 @@ CORO_DEFINE(get_angle)
 	{
 		get_sensor_value(0, gyro, &temp_angle);
 		gyro_angle = -(temp_angle - gyro_zero_angle);
-		printf("Gyro angle: %d\n", gyro_angle);
+		//printf("Gyro angle: %d\n", gyro_angle);
 		CORO_YIELD();
 	}
 	CORO_END();
@@ -429,11 +430,13 @@ CORO_DEFINE(DFA)
 			break;
 
 		case STATE_PROXIMITY_CORRECTION:
+			printf("STATE: PROXIMITY CORRECTION\nActual proximity: %d\n", proximity);
 			while (proximity >= DISTANCE_MAX || proximity <= DISTANCE_MIN)
 			{
 				while (proximity >= DISTANCE_MAX)
 				{
 					// TODO: Sto assumendo l'inerzia, aggiungere un epsilon in più?
+					printf("Getting closer of %d", (proximity - DISTANCE_MAX) / 10);
 					rel_walk = (int)((proximity - DISTANCE_MAX) / 10 * DISTANCE_CONSTANT);
 					command = MOVE_FORWARD_CORRECTION;
 					CORO_WAIT(command == MOVE_NONE);
@@ -441,16 +444,18 @@ CORO_DEFINE(DFA)
 				// proximity is updated here
 				while (proximity <= DISTANCE_MIN)
 				{
+					printf("Getting further of %d", BACKWARDS_STEP);
 					rel_walk = (int)((-BACKWARDS_STEP) * DISTANCE_CONSTANT);
 					command = MOVE_FORWARD_CORRECTION;
 					CORO_WAIT(command == MOVE_NONE);
 				}
 			}
+			printf("Exiting proximity correction\n");
 			state = next_state;
 			break;
 
 		case STATE_ANGLE_CORRECTION:
-
+			printf("STATE: ANGLE CORRECTION\nActual angle: %d, Expected angle: %d\n", gyro_angle, expected_angle);
 			while (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
 			{
 				printf("Turning this amount : %d = %d/2", (expected_angle - gyro_angle), (expected_angle - gyro_angle) / 2);
@@ -458,6 +463,7 @@ CORO_DEFINE(DFA)
 				command = TURN_ANGLE;
 				CORO_WAIT(command == MOVE_NONE);
 			}
+			printf("Exiting angle correction\n");
 
 			state = next_state;
 
@@ -526,9 +532,9 @@ CORO_DEFINE(drive)
 
 		case TURN_ANGLE:
 			if (angle >= 0) {
-			_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(-angle), speed_circular, DEGREE_TO_COUNT(0));
-			} else {
 			_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(0), speed_circular, DEGREE_TO_COUNT(angle));
+			} else {
+			_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(-angle), speed_circular, DEGREE_TO_COUNT(0));
 
 			}
 			_wait_stopped = 1;
@@ -625,7 +631,6 @@ int state_forward(int proximity, float walked, float walked_thresh, int state_wi
 
 	if (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
 	{
-		printf("Angle correction while forward\n");
 		next_state = state_within_thresh;
 		return STATE_ANGLE_CORRECTION;
 	}
