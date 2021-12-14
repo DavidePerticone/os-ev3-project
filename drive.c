@@ -37,7 +37,7 @@
 #define R_MOTOR_EXT_PORT EXT_PORT__NONE_
 #define IR_CHANNEL 0
 
-#define SPEED_LINEAR 50	  /* Motor speed for linear motion, in percents */
+#define SPEED_LINEAR 75	  /* Motor speed for linear motion, in percents */
 #define SPEED_CIRCULAR 50 /* ... for circular motion */
 #define HISTORY_LENGTH 200
 
@@ -49,6 +49,7 @@
 #define DISTANCE_MAX 200 /* 10 cm */
 #define DISTANCE_MIN 170 /* 5 cm */
 #define BACKWARDS_STEP 1 /* 5 cm */
+#define DISTANCE_MIN_ANGLE_CORR 200
 
 #define LS1 20
 #define SS1 20
@@ -101,7 +102,8 @@ enum
 	STATE_FORWARD6,
 	STATE_PROXIMITY_CORRECTION,
 	STATE_ANGLE_CORRECTION,
-	STATE_REG_LAP
+	STATE_REG_LAP,
+	STATE_PROXIMITY_CORRECTION_BEFORE_ANGLE
 };
 
 int moving;	 /* Current moving */
@@ -181,7 +183,7 @@ static int _is_running(void)
 
 static void _stop(void)
 {
-	multi_set_tacho_command_inx(motor, TACHO_HOLD);
+	multi_set_tacho_command_inx(motor, TACHO_STOP);
 }
 
 static void _get_tacho_position(int *pos)
@@ -383,8 +385,8 @@ CORO_DEFINE(DFA)
 		case STATE_FORWARD3:
 			printf("STATE_FORWARD3\n");
 			expected_angle = 270 + lap;
-			state = state_forward(proximity, axle_distance, 20, STATE_FORWARD3, STATE_TURN_R1);
-			rel_walk = (int)(20 * DISTANCE_CONSTANT);
+			state = state_forward(proximity, axle_distance, 5, STATE_FORWARD3, STATE_TURN_R1);
+			rel_walk = (int)(5 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
 
@@ -442,7 +444,7 @@ CORO_DEFINE(DFA)
 
 		case STATE_REG_LAP:
 			printf("FINISHED LAP %d\n", lap / 360);
-			lap += 360;
+			lap += 355;
 			state = STATE_TURN_L1;
 
 			break;
@@ -469,12 +471,34 @@ CORO_DEFINE(DFA)
 					CORO_WAIT(command == MOVE_NONE);
 				}
 			}
+			
 			printf("Exiting proximity correction\n");
 			state = next_state;
 			break;
 
+
+		case STATE_PROXIMITY_CORRECTION_BEFORE_ANGLE:
+			printf("STATE: PROXIMITY CORRECTION BEFORE ANGLE\nActual proximity: %d\n", proximity);
+			while (proximity <= DISTANCE_MIN_ANGLE_CORR)
+			{
+				// proximity is updated here
+				while (proximity <= DISTANCE_MIN_ANGLE_CORR)
+				{
+					printf("Getting further of %d", BACKWARDS_STEP);
+					rel_walk = (int)((-BACKWARDS_STEP) * DISTANCE_CONSTANT);
+					command = MOVE_FORWARD_CORRECTION;
+					CORO_WAIT(command == MOVE_NONE);
+				}
+			}
+			
+			printf("Exiting proximity correction\n");
+			state = next_state;
+			break;
+
+
 		case STATE_ANGLE_CORRECTION:
 			printf("STATE: ANGLE CORRECTION\nActual angle: %d, Expected angle: %d\n", gyro_angle, expected_angle);
+
 			while (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
 			{
 				printf("Turning this amount : %d = %d/2", (expected_angle - gyro_angle), (expected_angle - gyro_angle) / 2);
@@ -516,6 +540,7 @@ CORO_DEFINE(drive)
 
 	for (;;)
 	{
+		printf("Moving %d, Command %d\n", moving, command);
 		/* Waiting new command */
 		CORO_WAIT(moving != command);
 
@@ -525,6 +550,7 @@ CORO_DEFINE(drive)
 
 		case MOVE_NONE:
 			_stop();
+			printf("Stop\n");
 			_wait_stopped = 1;
 			break;
 
@@ -536,6 +562,7 @@ CORO_DEFINE(drive)
 
 		case MOVE_FORWARD:
 			_run_to_rel_pos(speed_linear, rel_walk, speed_linear, rel_walk);
+
 			break;
 
 		case MOVE_BACKWARD:
@@ -628,7 +655,7 @@ int main(void)
 	  }
 
 	*/
-
+	setbuf(stdout, 0);
 	app_alive = app_init();
 	_get_tacho_position(&axle_zero_angle);		 /* Reset the travelled distance to 0 */
 	get_sensor_value(0, gyro, &gyro_zero_angle); /* Reset the starting angle to 0 */
@@ -664,6 +691,15 @@ int state_forward(int proximity, float walked, float walked_thresh, int state_wi
 
 	if (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
 	{
+
+		command = MOVE_NONE;
+		printf("Proximity before angle correction %d\n", proximity);
+		if (proximity <= DISTANCE_MIN_ANGLE_CORR)
+		{
+			next_state = state_within_thresh;
+			return STATE_PROXIMITY_CORRECTION_BEFORE_ANGLE;
+		}
+
 		next_state = state_within_thresh;
 		return STATE_ANGLE_CORRECTION;
 	}
