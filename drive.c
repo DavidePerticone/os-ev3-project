@@ -37,7 +37,7 @@
 #define R_MOTOR_EXT_PORT EXT_PORT__NONE_
 #define IR_CHANNEL 0
 
-#define SPEED_LINEAR 75	  /* Motor speed for linear motion, in percents */
+#define SPEED_LINEAR 50	  /* Motor speed for linear motion, in percents */
 #define SPEED_CIRCULAR 50 /* ... for circular motion */
 #define HISTORY_LENGTH 200
 
@@ -46,9 +46,9 @@
 #define WHEEL_CONSTANT ((PI * WHEEL_DIAMETER) / 360)
 #define DISTANCE_CONSTANT (1 / WHEEL_CONSTANT)
 
-#define DISTANCE_MAX 250 /* 10 cm */
-#define DISTANCE_MIN 200 /* 5 cm */
-#define BACKWARDS_STEP 2 /* 5 cm */
+#define DISTANCE_MAX 200 /* 10 cm */
+#define DISTANCE_MIN 170 /* 5 cm */
+#define BACKWARDS_STEP 1 /* 5 cm */
 
 #define LS1 20
 #define SS1 20
@@ -242,6 +242,7 @@ int app_init(void)
 }
 
 int state_forward(int proximity, float walked, float walked_thresh, int state_within_thresh, int state_after_tresh);
+int state_forward_no_prox_check(int proximity, float walked, float walked_thresh, int state_within_thresh, int state_after_tresh);
 int get_average_sensor(uint8_t sensor, int samples)
 {
 
@@ -270,7 +271,8 @@ CORO_DEFINE(get_proximity)
 	CORO_BEGIN();
 	while (1)
 	{
-		proximity = get_average_sensor(ir, 5) % 2550;
+		Sleep(50);
+		proximity = get_average_sensor(ir, 10) % 2550;
 		CORO_YIELD();
 	}
 	CORO_END();
@@ -364,8 +366,8 @@ CORO_DEFINE(DFA)
 		case STATE_FORWARD2:
 			printf("STATE_FORWARD2\n");
 			expected_angle = 180 + lap;
-			state = state_forward(proximity, axle_distance, 100, STATE_FORWARD2, STATE_TURN_L3);
-			rel_walk = (int)(100 * DISTANCE_CONSTANT);
+			state = state_forward_no_prox_check(proximity, axle_distance, 80, STATE_FORWARD2, STATE_TURN_L3);
+			rel_walk = (int)(80 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
 
@@ -454,6 +456,7 @@ CORO_DEFINE(DFA)
 					// TODO: Sto assumendo l'inerzia, aggiungere un epsilon in più?
 					printf("Getting closer of %d", (proximity - DISTANCE_MAX) / 10);
 					rel_walk = (int)((proximity - DISTANCE_MAX) / 10 * DISTANCE_CONSTANT);
+					if (rel_walk == 0) rel_walk = 1;
 					command = MOVE_FORWARD_CORRECTION;
 					CORO_WAIT(command == MOVE_NONE);
 				}
@@ -673,6 +676,21 @@ int state_forward(int proximity, float walked, float walked_thresh, int state_wi
 			next_state = state_after_tresh;
 			return STATE_PROXIMITY_CORRECTION;
 		}
+		return state_after_tresh;
+	}
+
+	return state_within_thresh;
+}
+
+int state_forward_no_prox_check(int proximity, float walked, float walked_thresh, int state_within_thresh, int state_after_tresh)
+{
+	if (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
+	{
+		next_state = state_within_thresh;
+		return STATE_ANGLE_CORRECTION;
+	}
+
+	if (walked >= walked_thresh) {
 		return state_after_tresh;
 	}
 
