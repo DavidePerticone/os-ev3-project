@@ -112,8 +112,9 @@ int state, next_state;
 int expected_angle;
 int lap;
 int touch_pressed;
+int compass_value;
 
-uint8_t ir, gyro, touch; /* Sequence numbers of sensors */
+uint8_t ir, gyro, touch, compass; /* Sequence numbers of sensors */
 enum
 {
 	L,
@@ -231,6 +232,11 @@ int app_init(void)
 		printf(" use the TOUCH sensor.\n");
 	}
 
+	if (ev3_search_sensor(HT_NXT_COMPASS, &compass, 0))
+	{
+		printf(" use the COMPASS sensor.\n");
+	}
+
 	lap = 0;
 	state = STATE_START;
 	printf("Init State: %d\n", state);
@@ -261,6 +267,18 @@ CORO_CONTEXT(get_distance);
 CORO_CONTEXT(get_angle);
 CORO_CONTEXT(get_touch);
 CORO_CONTEXT(DFA);
+CORO_CONTEXT(get_compass);
+
+CORO_DEFINE(get_compass)
+{
+	CORO_BEGIN();
+	for (;;)
+	{
+		get_sensor_value(0, compass, &compass_value);
+		CORO_YIELD();
+	}
+	CORO_END();
+}
 
 CORO_DEFINE(get_proximity)
 {
@@ -397,7 +415,7 @@ CORO_DEFINE(DFA)
 		case STATE_FORWARD6:
 			printf("STATE_FORWARD6\n");
 			expected_angle = 360 + lap;
-			state = state_forward(proximity, axle_distance, 20, STATE_FORWARD6, STATE_REG_LAP);
+			state = state_forward_no_prox_check(proximity, axle_distance, 20, STATE_FORWARD6, STATE_REG_LAP);
 			rel_walk = (int)(20 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
@@ -408,23 +426,43 @@ CORO_DEFINE(DFA)
 			lap += 355;
 			state = STATE_START;
 			_get_tacho_position(&axle_zero_angle);
+
 			break;
 
-		/*
-		 *  In case the data of the IR sensor which is not comprehended in the range settled in design mode
-		 *  this method is called.  
-		 * 
-		 *  If the proximity is greater to the object than expected, it means we have to get much closer,
-		 *  otherwise we have to get further back. In order to do that, either we calculate a dynamic value
-		 *  based on the distance max and the proximity or a we use fixed distance. 
-		 * 
-		 *  Testing it, we observed that the second case is more precise, so we assume that is the best option.
-		 *  When we say that is it more precise, we mean that the is less likely for the robot to hit an object 
-		 *  before realizing that the proximity condition is not valid anymore.
-		 * 
-		 *  Finally we change the state to the one setted in the previous method (which called STATE_PROXIMITY_CORRECTION).
-		 *  For instance, STATE_START, state_forward, STATE_PROXIMITY_CORRECTION, STATE_FORWARD1
-		*/
+	/*	case STATE_CALIBRATE_GYRO:
+			printf("CALIBRATE GYRO\n");
+
+
+			while (compass_value != COMP_VALUE)
+			{				
+				printf("Turning this amount : %d = %d/2", (expected_angle - gyro_angle), (expected_angle - gyro_angle) / 2);
+				if(compass_value-COMP_VALUE < 0){
+					angle=1;
+				}else{
+					angle=-1;
+				}
+				command = TURN_ANGLE;
+				CORO_WAIT(command == MOVE_NONE);
+			}
+
+			state = STATE_START;
+			break;*/
+
+			/*
+			 *  In case the data of the IR sensor which is not comprehended in the range settled in design mode
+			 *  this method is called.
+			 *
+			 *  If the proximity is greater to the object than expected, it means we have to get much closer,
+			 *  otherwise we have to get further back. In order to do that, either we calculate a dynamic value
+			 *  based on the distance max and the proximity or a we use fixed distance.
+			 *
+			 *  Testing it, we observed that the second case is more precise, so we assume that is the best option.
+			 *  When we say that is it more precise, we mean that the is less likely for the robot to hit an object
+			 *  before realizing that the proximity condition is not valid anymore.
+			 *
+			 *  Finally we change the state to the one setted in the previous method (which called STATE_PROXIMITY_CORRECTION).
+			 *  For instance, STATE_START, state_forward, STATE_PROXIMITY_CORRECTION, STATE_FORWARD1
+			 */
 
 		case STATE_PROXIMITY_CORRECTION:
 			printf("STATE: PROXIMITY CORRECTION\nActual proximity: %d\n", proximity);
@@ -456,12 +494,12 @@ CORO_DEFINE(DFA)
 
 			break;
 
-		/*
-		 * This state is called whenever the robot get stack to an object or whatever item there is
-		 * in the circuit. In this case, the first thing we want to do is gettin further from the obstacle with the
-		 * inner while iteration. After fixing this issue, we move the state to the next one, which is
-		 * the turning one.
-		*/
+			/*
+			 * This state is called whenever the robot get stack to an object or whatever item there is
+			 * in the circuit. In this case, the first thing we want to do is gettin further from the obstacle with the
+			 * inner while iteration. After fixing this issue, we move the state to the next one, which is
+			 * the turning one.
+			 */
 
 		case STATE_PROXIMITY_CORRECTION_BEFORE_ANGLE:
 			printf("STATE: PROXIMITY CORRECTION BEFORE ANGLE\nActual proximity: %d\n", proximity);
@@ -480,35 +518,35 @@ CORO_DEFINE(DFA)
 			state = next_state;
 			break;
 
-		/*
-		 *  In case the angle data is not comprehended in the range settled in design mode
-		 *  this method is called. In fact, it is aimed to correct the angle of the movement of the robot.
-		 *  Doing this, we can check wherever it is going straight or not.
-		 * 
-		 *  First thing to be done is to save the data regarding the revolutions the motor has completed a movement.
-		 *  Given this data we can lately understand how many cm did the robot do while fixing the angle.
-		 * 
-		 *  At every while cycle, until the angle is not in the range settled in design mode, we want the robot
-		 *  to rotate for a specific angle, given by (expected_angle - gyro_angle) / 2.
-		 * 
-		 *  For instance, when we have;
-		 * 		- expected_angle = 30
-		 * 		- gyro_angle = 10
-		 * 
-		 *  The robot will rotate by (30-10)/2 = 10, getting to an angle of 20.
-		 *  After the first cycle we will have now this data;
-		 * 		- expected_angle = 30
-		 * 		- gyro_angle = 20
-		 * 
-		 *  After the robot finishes to turn, we want it to stop moving in order to understand clearly
-		 *  what kind of operation it will have to do.
-		 * 
-		 *  Finally, when the angle of the motor is within the range, we want to set again our reference,
-		 *  which is stored in the variable axle_zero_angle. Here we add the difference between the number of revolutions
-		 *  done after the angle correction and before. This number is giving us the information regarding the new angle
-		 *  which is detected as the 'correct' one that is within the range.
-		 * 
-		*/
+			/*
+			 *  In case the angle data is not comprehended in the range settled in design mode
+			 *  this method is called. In fact, it is aimed to correct the angle of the movement of the robot.
+			 *  Doing this, we can check wherever it is going straight or not.
+			 *
+			 *  First thing to be done is to save the data regarding the revolutions the motor has completed a movement.
+			 *  Given this data we can lately understand how many cm did the robot do while fixing the angle.
+			 *
+			 *  At every while cycle, until the angle is not in the range settled in design mode, we want the robot
+			 *  to rotate for a specific angle, given by (expected_angle - gyro_angle) / 2.
+			 *
+			 *  For instance, when we have;
+			 * 		- expected_angle = 30
+			 * 		- gyro_angle = 10
+			 *
+			 *  The robot will rotate by (30-10)/2 = 10, getting to an angle of 20.
+			 *  After the first cycle we will have now this data;
+			 * 		- expected_angle = 30
+			 * 		- gyro_angle = 20
+			 *
+			 *  After the robot finishes to turn, we want it to stop moving in order to understand clearly
+			 *  what kind of operation it will have to do.
+			 *
+			 *  Finally, when the angle of the motor is within the range, we want to set again our reference,
+			 *  which is stored in the variable axle_zero_angle. Here we add the difference between the number of revolutions
+			 *  done after the angle correction and before. This number is giving us the information regarding the new angle
+			 *  which is detected as the 'correct' one that is within the range.
+			 *
+			 */
 
 		case STATE_ANGLE_CORRECTION:
 			printf("STATE: ANGLE CORRECTION\nActual angle: %d, Expected angle: %d\n", gyro_angle, expected_angle);
@@ -524,7 +562,7 @@ CORO_DEFINE(DFA)
 				command = TURN_ANGLE;
 				CORO_WAIT(command == MOVE_NONE);
 				/* if angle has not changed, correct proximity */
-				if (prev_angle == (gyro_angle - 1) || prev_angle == (gyro_angle + 1) || prev_angle == (gyro_angle))
+				if (/*prev_angle == (gyro_angle - 1) || prev_angle == (gyro_angle + 1) ||*/ prev_angle == (gyro_angle))
 				{
 					rel_walk = (int)((-5) * DISTANCE_CONSTANT);
 					command = MOVE_FORWARD_CORRECTION;
@@ -571,57 +609,57 @@ CORO_DEFINE(drive)
 		_wait_stopped = 0;
 		switch (command)
 		{
-			case MOVE_NONE:
-				_stop();
-				printf("Stop\n");
-				_wait_stopped = 1;
-				break;
+		case MOVE_NONE:
+			_stop();
+			printf("Stop\n");
+			_wait_stopped = 1;
+			break;
 
-			case MOVE_FORWARD_CORRECTION:
-				printf("State while correcting prox %d\n", state);
-				_run_to_rel_pos(speed_linear, rel_walk, speed_linear, rel_walk);
-				_wait_stopped = 1;
-				break;
+		case MOVE_FORWARD_CORRECTION:
+			printf("State while correcting prox %d\n", state);
+			_run_to_rel_pos(speed_linear, rel_walk, speed_linear, rel_walk);
+			_wait_stopped = 1;
+			break;
 
 		case MOVE_FORWARD:
 			printf("MOVE_FORward: rel walk %d\n", rel_walk);
 			_run_to_rel_pos(speed_linear, rel_walk, speed_linear, rel_walk);
 
-				break;
+			break;
 
-			case MOVE_BACKWARD:
-				_run_forever(-speed_linear, -speed_linear);
-				break;
+		case MOVE_BACKWARD:
+			_run_forever(-speed_linear, -speed_linear);
+			break;
 
-			case TURN_LEFT:
-				_run_forever(speed_circular, -speed_circular);
-				break;
+		case TURN_LEFT:
+			_run_forever(speed_circular, -speed_circular);
+			break;
 
-			case TURN_RIGHT:
-				_run_forever(-speed_circular, speed_circular);
-				break;
+		case TURN_RIGHT:
+			_run_forever(-speed_circular, speed_circular);
+			break;
 
-			case TURN_ANGLE:
-				if (angle >= 0)
-				{
-					_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(0), speed_circular, DEGREE_TO_COUNT(angle));
-				}
-				else
-				{
-					_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(-angle), speed_circular, DEGREE_TO_COUNT(0));
-				}
-				_wait_stopped = 1;
-				break;
+		case TURN_ANGLE:
+			if (angle >= 0)
+			{
+				_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(0), speed_circular, DEGREE_TO_COUNT(angle));
+			}
+			else
+			{
+				_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(-angle), speed_circular, DEGREE_TO_COUNT(0));
+			}
+			_wait_stopped = 1;
+			break;
 
-			case TURN_ANGLE_COMPASS:
-				_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(-angle), speed_circular, DEGREE_TO_COUNT(angle));
-				_wait_stopped = 1;
-				break;
+		case TURN_ANGLE_COMPASS:
+			_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(-angle), speed_circular, DEGREE_TO_COUNT(angle));
+			_wait_stopped = 1;
+			break;
 
-			case STEP_BACKWARD:
-				_run_timed(speed_linear, speed_linear, 1000);
-				_wait_stopped = 1;
-				break;
+		case STEP_BACKWARD:
+			_run_timed(speed_linear, speed_linear, 1000);
+			_wait_stopped = 1;
+			break;
 		}
 		moving = command;
 
@@ -685,6 +723,7 @@ int main(void)
 	get_sensor_value(0, gyro, &gyro_zero_angle); /* Reset the starting angle to 0 */
 	while (app_alive)
 	{
+		CORO_CALL(get_compass);
 		CORO_CALL(get_proximity);
 		CORO_CALL(get_distance);
 		CORO_CALL(get_angle);
@@ -707,15 +746,15 @@ int main(void)
  * 		- walked_thresh: float value, it represent the distance we would like it to walk
  * 		- state_within_thresh: current status
  * 		- state_after_tresh: next status
- * 
+ *
  * In the difference between the actual angle of the motors (gyro_angle) and the expected one (expected_angle)
  * is not between a certain range settled in design mode, it means that the robot is moving not straight, so we need to fix it.
  * Before fixing it, using STATE_PROXIMITY_CORRECTION_BEFORE_ANGLE, we set the next state for the second curve.
- * 
+ *
  * Finally, in case the distance he walked is greater than the one it should walk, we stop him and if the proximity
  * from the IR sensor to the first obstacle is either too big or too low, we move the state to STATE_PROXIMITY_CORRECTION, fixing
  * the distance to the obstacle. After solving this issue, we move to the next state, which ends the FORWARD1 method.
-*/
+ */
 
 int state_forward(int proximity, float walked, float walked_thresh, int state_within_thresh, int state_after_tresh)
 {
@@ -748,20 +787,19 @@ int state_forward(int proximity, float walked, float walked_thresh, int state_wi
 	return state_within_thresh;
 }
 
-
 /*
  * This method is called while the robot is doing the second corridor, where there are two obstacles. Since we don't know the shape of
- * these items, and knowing that if there is a circle shape the IR will retrieve wrong values, we don't want to check the proximity based on the 
- * next obstacle anymore. So what we do in this method is just to correct the angle in case it is not in the fixed range and check 
+ * these items, and knowing that if there is a circle shape the IR will retrieve wrong values, we don't want to check the proximity based on the
+ * next obstacle anymore. So what we do in this method is just to correct the angle in case it is not in the fixed range and check
  * wherever the robot has finished to walk based on the walked variable.
- * 
+ *
  * The parameters are;
  * 		- proximity: int value, it represent the distance between the IR sensor and the first obstacle in real time
  * 		- walked: float value, it represent the distance it actually walk
  * 		- walked_thresh: float value, it represent the distance we would like it to walk
  * 		- state_within_thresh: current status
  * 		- state_after_tresh: next status
-*/
+ */
 
 int state_forward_no_prox_check(int proximity, float walked, float walked_thresh, int state_within_thresh, int state_after_tresh)
 {
