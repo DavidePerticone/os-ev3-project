@@ -302,15 +302,17 @@ CORO_DEFINE(get_angle)
 	{
 		get_sensor_value(0, gyro, &temp_angle);
 		gyro_angle = -(temp_angle - gyro_zero_angle);
-		//printf("Gyro angle: %d\n", gyro_angle);
+		// printf("Gyro angle: %d\n", gyro_angle);
 		CORO_YIELD();
 	}
 	CORO_END();
 }
 
-CORO_DEFINE(get_touch) {
+CORO_DEFINE(get_touch)
+{
 	CORO_BEGIN();
-	for (;;) {
+	for (;;)
+	{
 		get_sensor_value(0, touch, &touch_pressed);
 		printf("SEEE: %d\n", touch_pressed);
 		CORO_YIELD();
@@ -320,6 +322,8 @@ CORO_DEFINE(get_touch) {
 
 CORO_DEFINE(DFA)
 {
+
+	CORO_LOCAL int prev_angle, save_walk, save_walk2;
 
 	CORO_BEGIN();
 
@@ -331,61 +335,52 @@ CORO_DEFINE(DFA)
 		case STATE_START:
 			printf("STATE START\n");
 			expected_angle = 0 + lap;
-			state = state_forward(proximity, axle_distance, 50, STATE_START, STATE_TURN_L1);
+			state = state_forward(proximity, axle_distance, 50, STATE_START, STATE_FORWARD1);
+			if (state == STATE_FORWARD1)
+			{
+				_get_tacho_position(&axle_zero_angle);
+			}
 			if (state != STATE_START)
 				break;
 			rel_walk = (int)(50 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
 
-		case STATE_TURN_L1:
-
-			printf("STATE_TURN_L1\n");
-			angle = 120;
-			command = TURN_ANGLE;
-			CORO_WAIT(command == MOVE_NONE);
-			_get_tacho_position(&axle_zero_angle);
-			state = STATE_FORWARD1;
-			break;
 
 		case STATE_FORWARD1:
 			printf("STATE_FORWARD1\n");
 			expected_angle = 90 + lap;
-			state = state_forward(proximity, axle_distance, 35, STATE_FORWARD1, STATE_TURN_L2);
-			rel_walk = (int)(35 * DISTANCE_CONSTANT);
+			state = state_forward(proximity, axle_distance, 80, STATE_FORWARD1, STATE_FORWARD2);
+			/* should enter here */
+			if (state == STATE_FORWARD2)
+			{
+				printf("ZERO %d\n", axle_zero_angle);
+				_get_tacho_position(&axle_zero_angle);
+			}
+			rel_walk = (int)(80 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
-			break;
-
-		case STATE_TURN_L2:
-			printf("STATE_TURN_L2\n");
-			angle = 120;
-			command = TURN_ANGLE;
-			CORO_WAIT(command == MOVE_NONE);
-			_get_tacho_position(&axle_zero_angle);
-			state = STATE_FORWARD2;
 			break;
 
 		case STATE_FORWARD2:
 			printf("STATE_FORWARD2\n");
 			expected_angle = 180 + lap;
-			state = state_forward_no_prox_check(proximity, axle_distance, 80, STATE_FORWARD2, STATE_TURN_L3);
+			state = state_forward_no_prox_check(proximity, axle_distance, 80, STATE_FORWARD2, STATE_FORWARD3);
+			if (state == STATE_FORWARD3)
+			{
+				_get_tacho_position(&axle_zero_angle);
+			}
 			rel_walk = (int)(80 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
-			break;
-
-		case STATE_TURN_L3:
-			printf("STATE_TURN_L3\n");
-			angle = 120;
-			command = TURN_ANGLE;
-			CORO_WAIT(command == MOVE_NONE);
-			_get_tacho_position(&axle_zero_angle);
-			state = STATE_FORWARD3;
 			break;
 
 		case STATE_FORWARD3:
 			printf("STATE_FORWARD3\n");
 			expected_angle = 270 + lap;
-			state = state_forward(proximity, axle_distance, 5, STATE_FORWARD3, STATE_TURN_R1);
+			state = state_forward(proximity, axle_distance, 5, STATE_FORWARD3, STATE_FORWARD4);
+			if (state == STATE_FORWARD4)
+			{
+				_get_tacho_position(&axle_zero_angle);
+			}
 			rel_walk = (int)(5 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
@@ -402,7 +397,11 @@ CORO_DEFINE(DFA)
 		case STATE_FORWARD4:
 			printf("STATE_FORWARD4\n");
 			expected_angle = 180 + lap;
-			state = state_forward(proximity, axle_distance, 60, STATE_FORWARD4, STATE_TURN_L4);
+			state = state_forward(proximity, axle_distance, 60, STATE_FORWARD4, STATE_FORWARD5);
+			if (state == STATE_FORWARD5)
+			{
+				_get_tacho_position(&axle_zero_angle);
+			}
 			rel_walk = (int)(60 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
@@ -419,7 +418,11 @@ CORO_DEFINE(DFA)
 		case STATE_FORWARD5:
 			printf("STATE_FORWARD5\n");
 			expected_angle = 270 + lap;
-			state = state_forward(proximity, axle_distance, 30, STATE_FORWARD5, STATE_TURN_L5);
+			state = state_forward(proximity, axle_distance, 30, STATE_FORWARD5, STATE_FORWARD6);
+			if (state == STATE_FORWARD6)
+			{
+				_get_tacho_position(&axle_zero_angle);
+			}
 			rel_walk = (int)(30 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
@@ -445,8 +448,8 @@ CORO_DEFINE(DFA)
 		case STATE_REG_LAP:
 			printf("FINISHED LAP %d\n", lap / 360);
 			lap += 355;
-			state = STATE_TURN_L1;
-
+			state = STATE_START;
+			_get_tacho_position(&axle_zero_angle);
 			break;
 
 		case STATE_PROXIMITY_CORRECTION:
@@ -458,7 +461,8 @@ CORO_DEFINE(DFA)
 					// TODO: Sto assumendo l'inerzia, aggiungere un epsilon in più?
 					printf("Getting closer of %d", (proximity - DISTANCE_MAX) / 10);
 					rel_walk = (int)((proximity - DISTANCE_MAX) / 10 * DISTANCE_CONSTANT);
-					if (rel_walk == 0) rel_walk = 1;
+					if (rel_walk == 0)
+						rel_walk = 1;
 					command = MOVE_FORWARD_CORRECTION;
 					CORO_WAIT(command == MOVE_NONE);
 				}
@@ -471,11 +475,11 @@ CORO_DEFINE(DFA)
 					CORO_WAIT(command == MOVE_NONE);
 				}
 			}
-			
+
 			printf("Exiting proximity correction\n");
 			state = next_state;
-			break;
 
+			break;
 
 		case STATE_PROXIMITY_CORRECTION_BEFORE_ANGLE:
 			printf("STATE: PROXIMITY CORRECTION BEFORE ANGLE\nActual proximity: %d\n", proximity);
@@ -490,24 +494,36 @@ CORO_DEFINE(DFA)
 					CORO_WAIT(command == MOVE_NONE);
 				}
 			}
-			
+
 			printf("Exiting proximity correction\n");
 			state = next_state;
 			break;
 
-
 		case STATE_ANGLE_CORRECTION:
 			printf("STATE: ANGLE CORRECTION\nActual angle: %d, Expected angle: %d\n", gyro_angle, expected_angle);
 
+			_get_tacho_position(&save_walk);
+			printf("AXLE DISTANCE: %d\n", axle_zero_angle);
+
 			while (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
 			{
+				prev_angle = gyro_angle;
 				printf("Turning this amount : %d = %d/2", (expected_angle - gyro_angle), (expected_angle - gyro_angle) / 2);
 				angle = (expected_angle - gyro_angle) / 2;
 				command = TURN_ANGLE;
 				CORO_WAIT(command == MOVE_NONE);
+				// TODO if angle has not changed, correct proximity
+				/*	if(prev_angle == (gyro_angle-1) || prev_angle == (gyro_angle+1) || prev_angle == (gyro_angle)){
+
+					}*/
 			}
 			printf("Exiting angle correction\n");
+			_get_tacho_position(&save_walk2);
+			axle_zero_angle = axle_zero_angle + (save_walk2 - save_walk);
+			printf("AXLE DISTANCE2 : AXLE DISTANCE %d %g\n", axle_zero_angle, axle_distance * DISTANCE_CONSTANT);
 
+			//??? What the fuck?!
+			_get_tacho_position(&axle_zero_angle);
 			state = next_state;
 
 			break;
@@ -580,11 +596,11 @@ CORO_DEFINE(drive)
 		case TURN_ANGLE:
 			if (angle >= 0)
 			{
-			_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(0), speed_circular, DEGREE_TO_COUNT(angle));
-			} 
-			else 
+				_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(0), speed_circular, DEGREE_TO_COUNT(angle));
+			}
+			else
 			{
-			_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(-angle), speed_circular, DEGREE_TO_COUNT(0));
+				_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(-angle), speed_circular, DEGREE_TO_COUNT(0));
 			}
 			_wait_stopped = 1;
 			break;
@@ -678,16 +694,16 @@ int main(void)
 int state_forward(int proximity, float walked, float walked_thresh, int state_within_thresh, int state_after_tresh)
 {
 
-	if (walked >= walked_thresh)
-	{
-		command = MOVE_NONE;
-		if (proximity >= DISTANCE_MAX || proximity <= DISTANCE_MIN)
+	/*	if (walked >= walked_thresh)
 		{
-			next_state = state_after_tresh;
-			return STATE_PROXIMITY_CORRECTION;
-		}
-		return state_after_tresh;
-	}
+			command = MOVE_NONE;
+			if (proximity >= DISTANCE_MAX || proximity <= DISTANCE_MIN)
+			{
+				next_state = state_after_tresh;
+				return STATE_PROXIMITY_CORRECTION;
+			}
+			return state_after_tresh;
+		}*/
 
 	if (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
 	{
@@ -726,7 +742,8 @@ int state_forward_no_prox_check(int proximity, float walked, float walked_thresh
 		return STATE_ANGLE_CORRECTION;
 	}
 
-	if (walked >= walked_thresh) {
+	if (walked >= walked_thresh)
+	{
 		return state_after_tresh;
 	}
 
