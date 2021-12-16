@@ -385,22 +385,21 @@ CORO_DEFINE(DFA)
 			command = MOVE_FORWARD;
 			break;
 
-
 		case STATE_FORWARD5:
 			printf("STATE_FORWARD5\n");
 			expected_angle = 270 + lap;
-			state = state_forward(proximity, axle_distance, 30, STATE_FORWARD5, STATE_FORWARD6);
+			state = state_forward(proximity, axle_distance, 50, STATE_FORWARD5, STATE_FORWARD6);
 			if (state == STATE_FORWARD6)
 				_get_tacho_position(&axle_zero_angle);
-			rel_walk = (int)(30 * DISTANCE_CONSTANT);
+			rel_walk = (int)(50 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
 
 		case STATE_FORWARD6:
 			printf("STATE_FORWARD6\n");
 			expected_angle = 360 + lap;
-			state = state_forward(proximity, axle_distance, 90, STATE_FORWARD6, STATE_REG_LAP);
-			rel_walk = (int)(90 * DISTANCE_CONSTANT);
+			state = state_forward(proximity, axle_distance, 20, STATE_FORWARD6, STATE_REG_LAP);
+			rel_walk = (int)(20 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
 			break;
 
@@ -419,7 +418,7 @@ CORO_DEFINE(DFA)
 				{
 					// TODO: Sto assumendo l'inerzia, aggiungere un epsilon in più?
 					printf("Getting closer of %d", (proximity - DISTANCE_MAX) / 10);
-					rel_walk = (int)((proximity - DISTANCE_MAX) / 10 * DISTANCE_CONSTANT);
+					rel_walk = (int)(3 * DISTANCE_CONSTANT);
 					if (rel_walk == 0)
 						rel_walk = 1;
 					command = MOVE_FORWARD_CORRECTION;
@@ -472,11 +471,13 @@ CORO_DEFINE(DFA)
 				angle = (expected_angle - gyro_angle) / 2;
 				command = TURN_ANGLE;
 				CORO_WAIT(command == MOVE_NONE);
-				// TODO if angle has not changed, correct proximity
-				/*	if(prev_angle == (
-					.-1) || prev_angle == (gyro_angle+1) || prev_angle == (gyro_angle)){
-
-					}*/
+				/* if angle has not changed, correct proximity */
+				if (prev_angle == (gyro_angle - 1) || prev_angle == (gyro_angle + 1) || prev_angle == (gyro_angle))
+				{
+					rel_walk = (int)((-5) * DISTANCE_CONSTANT);
+					command = MOVE_FORWARD_CORRECTION;
+					CORO_WAIT(command == MOVE_NONE);
+				}
 			}
 			printf("Exiting angle correction\n");
 			_get_tacho_position(&save_walk2);
@@ -536,6 +537,7 @@ CORO_DEFINE(drive)
 			break;
 
 		case MOVE_FORWARD:
+			printf("MOVE_FORward: rel walk %d\n", rel_walk);
 			_run_to_rel_pos(speed_linear, rel_walk, speed_linear, rel_walk);
 
 			break;
