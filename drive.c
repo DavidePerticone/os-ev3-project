@@ -17,6 +17,7 @@
 #include "ev3_port.h"
 #include "ev3_sensor.h"
 #include "ev3_tacho.h"
+#include <stdlib.h>
 // WIN32 /////////////////////////////////////////
 #ifdef __WIN32__
 
@@ -50,6 +51,10 @@
 #define DISTANCE_MIN 170 /* 5 cm */
 #define BACKWARDS_STEP 1 /* 5 cm */
 #define DISTANCE_MIN_ANGLE_CORR 200
+#define COMP_VALUE 25
+
+#define COMPASS_CENTER 0
+#define ANGLE_OUTLIER 360
 
 #define LS1 20
 #define SS1 20
@@ -97,7 +102,8 @@ enum
 	STATE_PROXIMITY_CORRECTION,
 	STATE_ANGLE_CORRECTION,
 	STATE_REG_LAP,
-	STATE_PROXIMITY_CORRECTION_BEFORE_ANGLE
+	STATE_PROXIMITY_CORRECTION_BEFORE_ANGLE,
+	STATE_CALIBRATE_GYRO
 };
 
 int moving;	 /* Current moving */
@@ -334,7 +340,7 @@ CORO_DEFINE(get_touch)
 CORO_DEFINE(DFA)
 {
 
-	CORO_LOCAL int prev_angle, save_walk, save_walk2;
+	CORO_LOCAL int prev_angle, save_walk, save_walk2, r, d, sign;
 
 	CORO_BEGIN();
 
@@ -378,6 +384,12 @@ CORO_DEFINE(DFA)
 			}
 			rel_walk = (int)(80 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
+
+			if (state == STATE_FORWARD3)
+			{
+				printf("Entering state forward move none\n");
+				command = MOVE_NONE;
+			}
 			break;
 
 		case STATE_FORWARD3:
@@ -415,38 +427,48 @@ CORO_DEFINE(DFA)
 		case STATE_FORWARD6:
 			printf("STATE_FORWARD6\n");
 			expected_angle = 360 + lap;
-			state = state_forward_no_prox_check(proximity, axle_distance, 20, STATE_FORWARD6, STATE_REG_LAP);
-			rel_walk = (int)(20 * DISTANCE_CONSTANT);
+			state = state_forward_no_prox_check(proximity, axle_distance, 100, STATE_FORWARD6, STATE_REG_LAP);
+			rel_walk = (int)(100 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
+			/*
+			 * This is because the motors think that they have not finished running
+			 * but when checking in the state_forward_no_prox_check they have walked
+			 * the right distance, and so it switches to the next state. However, the
+			 * command does not switch to MOVE_NONE, so moving will always be equal to
+			 * command and the drive coroutine will be stuck on the corowait moving!=command.
+			 */
+			if (state == STATE_REG_LAP)
+			{
+				printf("Entering state forward move none\n");
+				command = MOVE_NONE;
+			}
 			break;
 
 		/* Lap is finished, set the state to START*/
 		case STATE_REG_LAP:
 			printf("FINISHED LAP %d\n", lap / 360);
-			lap += 355;
-			state = STATE_START;
+			state = STATE_CALIBRATE_GYRO;
 			_get_tacho_position(&axle_zero_angle);
 
 			break;
 
-	/*	case STATE_CALIBRATE_GYRO:
+		case STATE_CALIBRATE_GYRO:
 			printf("CALIBRATE GYRO\n");
+		
+			d = abs(compass_value - COMPASS_CENTER) % 360;
+			r = d > 180 ? 360 - d : d;
+			
+			// calculate sign
+			sign = (compass_value - COMPASS_CENTER >= 0 && compass_value - COMPASS_CENTER <= 180) || (compass_value - COMPASS_CENTER <= -180 && compass_value - COMPASS_CENTER >= -360) ? 1 : -1;
+			r *= sign;
 
+			lap += (360+r);
 
-			while (compass_value != COMP_VALUE)
-			{				
-				printf("Turning this amount : %d = %d/2", (expected_angle - gyro_angle), (expected_angle - gyro_angle) / 2);
-				if(compass_value-COMP_VALUE < 0){
-					angle=1;
-				}else{
-					angle=-1;
-				}
-				command = TURN_ANGLE;
-				CORO_WAIT(command == MOVE_NONE);
-			}
+			printf("Lap: %d r: %d\n", lap, r);
 
 			state = STATE_START;
-			break;*/
+
+			break;
 
 			/*
 			 *  In case the data of the IR sensor which is not comprehended in the range settled in design mode
@@ -554,6 +576,8 @@ CORO_DEFINE(DFA)
 			_get_tacho_position(&save_walk);
 			printf("AXLE DISTANCE: %d\n", axle_zero_angle);
 
+			if ((expected_angle - gyro_angle) > ANGLE_OUTLIER) break;
+
 			while (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
 			{
 				prev_angle = gyro_angle;
@@ -602,9 +626,10 @@ CORO_DEFINE(drive)
 
 	for (;;)
 	{
-		printf("Moving %d, Command %d\n", moving, command);
 		/* Waiting new command */
+
 		CORO_WAIT(moving != command);
+		printf("Moving %d, Command %d\n", moving, command);
 
 		_wait_stopped = 0;
 		switch (command)
@@ -667,6 +692,8 @@ CORO_DEFINE(drive)
 		{
 			/* Waiting the command is completed */
 			CORO_WAIT(!_is_running());
+			printf("is running exit\n");
+			printf("Moving %d, Command %d\n\n", moving, command);
 
 			command = moving = MOVE_NONE;
 		}
@@ -773,6 +800,7 @@ int state_forward(int proximity, float walked, float walked_thresh, int state_wi
 		return STATE_ANGLE_CORRECTION;
 	}
 
+	printf("Walked %f\n", walked);
 	if (walked >= walked_thresh)
 	{
 		command = MOVE_NONE;
