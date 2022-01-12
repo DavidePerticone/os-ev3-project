@@ -36,6 +36,8 @@
 #define L_MOTOR_EXT_PORT EXT_PORT__NONE_
 #define R_MOTOR_PORT OUTPUT_B
 #define R_MOTOR_EXT_PORT EXT_PORT__NONE_
+#define OBS_MOTOR_PORT OUTPUT_A
+#define OBS_MOTOR_EXT_PORT EXT_PORT__NONE_
 #define IR_CHANNEL 0
 
 #define SPEED_LINEAR 75	  /* Motor speed for linear motion, in percents */
@@ -97,6 +99,8 @@ enum
 	STATE_STILL,
 	STATE_FORWARD2,
 	STATE_FORWARD3,
+	STATE_FORWARD3_5,
+	STATE_DROP_OBS,
 	STATE_FORWARD4,
 	STATE_FORWARD5,
 	STATE_FORWARD6,
@@ -104,7 +108,6 @@ enum
 	STATE_ANGLE_CORRECTION,
 	STATE_REG_LAP,
 	STATE_PROXIMITY_CORRECTION_BEFORE_ANGLE,
-	STATE_CALIBRATE_GYRO,
 	STATE_PROXIMITY_OBSTACLE,
 	STATE_GYRO_CAL_BUTTON
 };
@@ -130,6 +133,7 @@ enum
 	R
 };
 uint8_t motor[3] = {DESC_LIMIT, DESC_LIMIT, DESC_LIMIT}; /* Sequence numbers of motors */
+uint8_t obs_motor;
 
 static void _set_mode(int value)
 {
@@ -276,7 +280,6 @@ CORO_CONTEXT(get_distance);
 CORO_CONTEXT(get_angle);
 CORO_CONTEXT(get_touch);
 CORO_CONTEXT(DFA);
-CORO_CONTEXT(get_compass);
 
 CORO_DEFINE(get_compass)
 {
@@ -344,7 +347,7 @@ CORO_DEFINE(get_touch)
 CORO_DEFINE(DFA)
 {
 
-	CORO_LOCAL int prev_angle, save_walk, save_walk2, r, d, sign;
+	CORO_LOCAL int prev_angle, save_walk, save_walk2, r, d, sign, max_speed, i;
 
 	CORO_BEGIN();
 
@@ -371,8 +374,6 @@ CORO_DEFINE(DFA)
 
 			printf("STATE_GYRO_CAL_BUTTON\n");
 
-			
-
 			while (!touch_pressed)
 			{
 				printf("touch pressed %d\n", touch_pressed);
@@ -383,7 +384,7 @@ CORO_DEFINE(DFA)
 			}
 
 			lap = gyro_angle;
-			
+
 			_get_tacho_position(&axle_zero_angle);
 
 			state = STATE_FORWARD1;
@@ -424,13 +425,49 @@ CORO_DEFINE(DFA)
 		case STATE_FORWARD3:
 			printf("STATE_FORWARD3\n");
 			expected_angle = 270 + lap;
-			state = state_forward(proximity, axle_distance, 5, STATE_FORWARD3, STATE_FORWARD4);
+			state = state_forward(proximity, axle_distance, 5, STATE_FORWARD3, STATE_FORWARD3_5);
 			if (state == STATE_FORWARD4)
 			{
 				_get_tacho_position(&axle_zero_angle);
 			}
 			rel_walk = (int)(200 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
+			break;
+
+		case STATE_FORWARD3_5:
+
+			expected_angle = 170 + lap;
+
+			state = state_forward_no_prox_check(proximity, 0, -5, STATE_FORWARD3_5, STATE_DROP_OBS);
+
+			break;
+
+		case STATE_DROP_OBS:
+			printf("STATE_DROP_OBS\n");
+
+			if (ev3_search_tacho(LEGO_EV3_M_MOTOR, &obs_motor, 0))
+			{
+
+				get_tacho_max_speed(obs_motor, &max_speed);
+				set_tacho_speed_sp(obs_motor, max_speed / 5);
+				set_tacho_ramp_up_sp(obs_motor, 500);
+				set_tacho_ramp_down_sp(obs_motor, 500);
+				set_tacho_position_sp(obs_motor, -100);
+
+				set_tacho_command_inx(obs_motor, TACHO_RUN_TO_REL_POS);
+
+				Sleep(500);
+
+				set_tacho_position_sp(obs_motor, 100);
+				set_tacho_command_inx(obs_motor, TACHO_RUN_TO_REL_POS);
+			}
+			else
+			{
+				printf("LEGO_EV3_M_MOTOR is NOT found\n");
+			}
+			state = STATE_FORWARD4;
+			_get_tacho_position(&axle_zero_angle);
+
 			break;
 
 		case STATE_FORWARD4:
@@ -481,24 +518,6 @@ CORO_DEFINE(DFA)
 			state = STATE_GYRO_CAL_BUTTON;
 			lap += 360;
 			_get_tacho_position(&axle_zero_angle);
-
-			break;
-
-		case STATE_CALIBRATE_GYRO:
-			printf("CALIBRATE GYRO\n");
-
-			d = abs(compass_value - COMPASS_CENTER) % 360;
-			r = d > 180 ? 360 - d : d;
-
-			// calculate sign
-			sign = (compass_value - COMPASS_CENTER >= 0 && compass_value - COMPASS_CENTER <= 180) || (compass_value - COMPASS_CENTER <= -180 && compass_value - COMPASS_CENTER >= -360) ? 1 : -1;
-			r *= sign;
-
-			lap += (360 + r);
-
-			printf("Lap: %d r: %d\n", lap, r);
-
-			state = STATE_START;
 
 			break;
 
@@ -743,47 +762,16 @@ int main(void)
 	printf("*** ( EV3 ) Hello! ***\n");
 	ev3_sensor_init();
 	ev3_tacho_init();
-	/*
-		int i;
-	  uint8_t sn;
-	  FLAGS_T state;
-	  uint8_t sn_touch;
-	  uint8_t sn_color;
-	  uint8_t sn_compass;
-	  uint8_t sn_sonar;
-	  uint8_t sn_mag;
-	  char s[ 256 ];
-	  int val;
-	  float value;
-	  uint32_t n, ii;
 
-
-		 printf( "Found sensors:\n" );
-	  for ( i = 0; i < DESC_LIMIT; i++ ) {
-		if ( ev3_sensor[ i ].type_inx != SENSOR_TYPE__NONE_ ) {
-		  printf( "  type = %s\n", ev3_sensor_type( ev3_sensor[ i ].type_inx ));
-		  printf( "  port = %s\n", ev3_sensor_port_name( i, s ));
-		  if ( get_sensor_mode( i, s, sizeof( s ))) {
-			printf( "  mode = %s\n", s );
-		  }
-		  if ( get_sensor_num_values( i, &n )) {
-			for ( ii = 0; ii < n; ii++ ) {
-			  if ( get_sensor_value( ii, i, &val )) {
-				printf( "  value%d = %d\n", ii, val );
-			  }
-			}
-		  }
-		}
-	  }
-
-	*/
 	setbuf(stdout, 0);
+
 	app_alive = app_init();
+
 	_get_tacho_position(&axle_zero_angle);		 /* Reset the travelled distance to 0 */
 	get_sensor_value(0, gyro, &gyro_zero_angle); /* Reset the starting angle to 0 */
+
 	while (app_alive)
 	{
-		CORO_CALL(get_compass);
 		CORO_CALL(get_proximity);
 		CORO_CALL(get_distance);
 		CORO_CALL(get_angle);
