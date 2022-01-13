@@ -11,6 +11,10 @@
  *  \copyright  See the LICENSE file.
  */
 
+/* TO DOs*/
+
+/* AVOID BLOCKING BEFORE DOING TURN
+ */
 #include <stdio.h>
 #include "coroutine.h"
 #include "ev3.h"
@@ -40,7 +44,7 @@
 #define OBS_MOTOR_EXT_PORT EXT_PORT__NONE_
 #define IR_CHANNEL 0
 
-#define SPEED_LINEAR 75  /* Motor speed for linear motion, in percents */
+#define SPEED_LINEAR 75	  /* Motor speed for linear motion, in percents */
 #define SPEED_CIRCULAR 50 /* ... for circular motion */
 #define HISTORY_LENGTH 200
 
@@ -81,7 +85,7 @@ int max_speed; /* Motor maximal speed */
 
 #define DEGREE_TO_COUNT(d) ((d)*260 / 90)
 
-int app_alive;
+int app_alive, n_lap;
 
 int DISTANCE_MAX = _DISTANCE_MAX; /* 10 cm */
 int DISTANCE_MIN = _DISTANCE_MIN; /* 5 cm */
@@ -135,7 +139,7 @@ int proximity;
 float axle_distance;
 int axle_zero_angle;
 int rel_walk;
-int state, next_state;
+int state, next_state, next_state1;
 int expected_angle;
 int lap;
 int touch_pressed;
@@ -267,12 +271,72 @@ int app_init(void)
 
 	lap = 0;
 	state = STATE_START;
+	n_lap = 0;
 	printf("Init State: %d\n", state);
+
 	return (1);
 }
 
 int state_forward(int proximity, float walked, float walked_thresh, int state_within_thresh, int state_after_tresh);
 int state_forward_no_prox_check(int proximity, float walked, float walked_thresh, int state_within_thresh, int state_after_tresh);
+int get_average_sensor2(uint8_t sensor, int samples, int thresh)
+{
+
+	int array_value[samples];
+	int value = 0, average = 0, i, j;
+	int moda = 0, counter_m = 0;
+	get_sensor_value(0, sensor, &value);
+	average += value;
+
+	printf("\n");
+	for (i = 0; i < samples; i++)
+	{
+		get_sensor_value(0, sensor, &value);
+		array_value[i] = value;
+		average = (average + value) / 2;
+		printf(" %d", value);
+	}
+	printf("\n");
+	for (i = 0; i < samples; i++)
+	{
+		moda = array_value[i];
+		counter_m = 0;
+		for (int j = 0; j < samples; j++)
+		{
+
+			if (array_value[j] > moda - thresh && array_value[j] < moda + thresh)
+			{
+				counter_m++;
+			}
+		}
+
+		if (counter_m >= samples / 2)
+		{
+			for (i = 0; i < samples; i++)
+			{
+				if (!(array_value[i] > moda - thresh && array_value[i] < moda + thresh))
+				{
+					printf("OUTLIER %d, MODA %d\n", array_value[i], moda);
+					array_value[i] = moda;
+				}
+			}
+			break;
+		}
+	}
+
+	average = 0;
+
+	for (i = 0; i < samples; i++)
+	{
+		average += array_value[i];
+	}
+
+	average /= samples;
+	printf("AVERAGE %d\n", average);
+	return average;
+}
+
+
 int get_average_sensor(uint8_t sensor, int samples)
 {
 
@@ -301,7 +365,7 @@ CORO_DEFINE(get_proximity)
 	CORO_BEGIN();
 	while (1)
 	{
-		proximity = get_average_sensor(ir, 20) % 2550;
+		proximity = get_average_sensor(ir, 10) % 2550;
 		CORO_YIELD();
 	}
 	CORO_END();
@@ -349,7 +413,7 @@ CORO_DEFINE(get_touch)
 CORO_DEFINE(DFA)
 {
 
-	CORO_LOCAL int prev_angle, save_walk, save_walk2, r, d, sign, max_speed, i, save_dist, prev_angle0;
+	CORO_LOCAL int prev_angle, save_walk, save_walk2, save_walk3, r, d, sign, max_speed, i, save_dist, prev_angle0, bumps, save_angle;
 
 	CORO_BEGIN();
 
@@ -361,8 +425,8 @@ CORO_DEFINE(DFA)
 		case STATE_START:
 			printf("STATE START\n");
 			expected_angle = 0 + lap;
-			state = state_forward_no_prox_check(proximity, axle_distance, START_DISTANCE, STATE_START, STATE_GYRO_CAL_BUTTON);
-			if (state == STATE_GYRO_CAL_BUTTON)
+			state = state_forward(proximity, axle_distance, START_DISTANCE, STATE_START, STATE_FORWARD1);
+			if (state == STATE_FORWARD1)
 			{
 				_get_tacho_position(&axle_zero_angle);
 			}
@@ -528,6 +592,7 @@ CORO_DEFINE(DFA)
 			printf("FINISHED LAP %d\n", lap / 360);
 			state = STATE_GYRO_CAL_BUTTON;
 			lap += 360;
+			n_lap++;
 			_get_tacho_position(&axle_zero_angle);
 
 			break;
@@ -673,12 +738,45 @@ CORO_DEFINE(DFA)
 
 		case STATE_PROXIMITY_OBSTACLE:
 
-			while (proximity <= DISTANCE_OBSTACLE)
+			if (bumps == 1)
 			{
-				printf("Getting further from obstacle %d", BACKWARDS_STEP);
-				rel_walk = (int)((-BACKWARDS_STEP) * DISTANCE_CONSTANT);
+				rel_walk = (int)((25) * DISTANCE_CONSTANT);
 				command = MOVE_FORWARD_CORRECTION;
 				CORO_WAIT(command == MOVE_NONE);
+				expected_angle = save_angle;
+				state = STATE_ANGLE_CORRECTION;
+				bumps = 0;
+				axle_zero_angle = save_walk3 + 20 * WHEEL_CONSTANT;
+				next_state = next_state1;
+				break;
+			}
+			else
+			{
+				bumps = 0;
+				save_walk3 = axle_zero_angle;
+				while (proximity <= DISTANCE_OBSTACLE)
+				{
+					printf("Getting further from obstacle %d", BACKWARDS_STEP);
+					rel_walk = (int)((-BACKWARDS_STEP) * DISTANCE_CONSTANT);
+					command = MOVE_FORWARD_CORRECTION;
+					CORO_WAIT(command == MOVE_NONE);
+					bumps++;
+					printf("BUMPS: %d \n", bumps);
+					if (bumps == 1)
+					{
+						break;
+					}
+				}
+
+				if (bumps == 1)
+				{
+					save_angle = gyro_angle;
+					expected_angle = gyro_angle + 45;
+					next_state1 = next_state;
+					next_state = STATE_PROXIMITY_OBSTACLE;
+					state = STATE_ANGLE_CORRECTION;
+					break;
+				}
 			}
 			state = next_state;
 			break;
