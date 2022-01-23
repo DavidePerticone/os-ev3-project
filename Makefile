@@ -1,4 +1,4 @@
-MAKEFILE_BASE = ../Makefile
+MAKEFILE_BASE = ./Makefile
 
 .PHONY: default clean clean-binary debug debug-clean debug-clean-binary release release-clean
 

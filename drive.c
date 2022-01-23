@@ -248,14 +248,18 @@ int app_init(void)
 	}
 	lap = 0;
 
-#if LAP_POS3
-	state = STATE_FORWARD2;
-#else
-	state = STATE_START;
-#endif
 	n_lap = 0;
 	left_right = 1;
 	printf("Init State: %d\n", state);
+	_get_tacho_position(&start_degrees_wheel);	 /* Reset the travelled distance to 0 */
+	get_sensor_value(0, gyro, &gyro_zero_angle); /* Reset the starting angle to 0 */
+
+#if LAP_POS3
+	state = STATE_FORWARD2;
+	gyro_zero_angle += 180;
+#else
+	state = STATE_START;
+#endif
 
 	return (1);
 }
@@ -857,11 +861,6 @@ int main(void)
 
 	app_alive = app_init();
 
-	_get_tacho_position(&start_degrees_wheel);	 /* Reset the travelled distance to 0 */
-	get_sensor_value(0, gyro, &gyro_zero_angle); /* Reset the starting angle to 0 */
-#if LAP_POS3
-	gyro_zero_angle += 180;
-#endif
 	while (app_alive)
 	{
 		CORO_CALL(get_proximity);
