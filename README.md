@@ -1,6 +1,7 @@
 # Report project "Eurecom kart"
 
 Authors: Davide Perticone, Cosma Alex Vergari, Lorenzo Pisanò
+Name of the robot: Big Chungus
 
 
 
