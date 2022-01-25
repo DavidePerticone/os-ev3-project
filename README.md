@@ -29,7 +29,7 @@ Coroutines have been extensively used throughout the code. They allow having con
 
 Following is a brief explanation of the two layers composing the program. For an extensive explanation, it is better to read the code. 
 
-**Bottom Layer ** 
+**Bottom Layer** 
 
 The bottom layer contains the initialization function,  **ev3_init()**. It is called once at the start of the program to properly detect all motors and sensors and initialize all needed variables. An infinite while loop in the main function is used to call all the coroutines that compose the program. They can be divided into two main categories depending on which layer they belong to: 
 
@@ -38,7 +38,7 @@ The bottom layer contains the initialization function,  **ev3_init()**. It is ca
 
 The logical flow at each iteration of the while is the following. All the current sensors' values are read by the respective coroutines and their global variables are set. After, the coroutine DFA (belonging to the top layer) evaluates the read values and decides what action the robot must perform. It sets some global variables that are used to tell the next coroutine, drive, what to do. The latter actuates the motors based on what DFA has decided.
 
-**Top Layer ** 
+**Top Layer** 
 
 The top layer implements the logic of the program, and the only coroutine present is called DFA. The name is not random but has a specific meaning. It is the acronym of "Deterministic Finite State Automaton", and this program tries to behave like one. 
 
