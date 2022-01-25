@@ -143,13 +143,7 @@ Obviously, after writing the code, the team met and reviewed other members’ so
 
 After a component was finished and was supposed to deliver new functionality, it was tested. For most of the development, the testing was carried out in a custom arena, built at the moment. Most of the time there were bugs to be solved. The debugging has been carried out in team.
 
-Follow, a summary of who developed what portion of the code:
-
-Perticone Davide:
-
-Pisanò Lorenzo:
-
-Vergari Cosma Alex:
+Due to the way the code has been developed, it is not possible to clearly define who wrote what. Usually, the pieces to develop were very small and heavily modified concurrently by all members of the team during debugging. All the members of the team were always present at each meeting.
 
 The repository of GitHub has been mostly used as a versioning system. The code has been developed in meetings where all the members worked on their part. For this reason, most of the merges of the code were done manually. This avoided conflicts in the code and a deeper understanding of the code by all members.
 
