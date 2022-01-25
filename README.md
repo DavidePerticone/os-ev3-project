@@ -100,16 +100,18 @@ The source code is available in the drive.c present in the repository. To downlo
 
 - Install ev3 docker image and ev3 libraries as explained in the **Cross Compilation - Basic** section of this page https://perso.telecom-paristech.fr/apvrille/OS/projects_fall2021.html.
 - Move inside the project directory where the ev3 library has been installed (where the folder ev3dev-c is located)
-- cd ev3dev-c/eg/
-- git clone git@github.com:DavidePerticone/os-ev3-project.git
-- cd ../../..
-- docker run --rm -it -h ev3 -v $(pwd)/:/src -w /src ev3cc /bin/bash
-- cd ev3dev-c/eg/os-ev3-project
-- make
-- exit
-- cd ev3dev-c/eg/os-ev3-project/Debug/
-- scp drive robot@192.168.43.183:   
 
+```bash
+$ cd ev3dev-c/eg/
+$ git clone git@github.com:DavidePerticone/os-ev3-project.git
+$ cd ../../..
+$ docker run --rm -it -h ev3 -v $(pwd)/:/src -w /src ev3cc /bin/bash
+$ cd ev3dev-c/eg/os-ev3-project
+$ make
+$ exit
+$ cd ev3dev-c/eg/os-ev3-project/Debug/
+$ scp drive robot@192.168.43.183:   
+```
 Now ssh to your robot and execute the file drive (./drive).
 
 
