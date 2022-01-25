@@ -21,6 +21,12 @@ The Ultrasonic Sensor is susceptible to vibration and for this reason, it is mou
 
 The robot body is minimal and has been designed to have the lowest possible center of gravity. On the front part, two arms are present and are used to calibrate the gyroscope at each lap (exact purpose is explained here TODO LINK). A basket is positioned on the top and it is attached to the Medium Motor through an axle. It contains the various obstacles that must be dropped while racing.
 
+Following, some pictures to understand better the architecture of the robot.
+
+![](./Photos/photo_2022-01-25_19-00-30.jpg)
+![](./Photos/photo_2022-01-25_19-01-44.jpg)
+![](./Photos/photo_2022-01-25_19-01-50.jpg)
+
 ## Algorithms
 
 The developed program follows a 2 Layered Architecture. The bottom layer is responsible for the actuation of the motors and for reading the sensors. The top one implements the logic of the program and is the brain of the robot. They communicate through some global variables that are set at each iteration of the core of the program.
