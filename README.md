@@ -28,7 +28,7 @@ Some pictures to understand better the architecture of the robot.
 ![](./Photos/photo_2022-01-25_19-01-50.jpg)
 
 In the video below you can see the **beast** in action.
-[![Alt text](./Photos/photo_2022-01-25_19-01-50.jpg)](video_2022-01-25_19-14-12.mp4)
+[![Alt text](./Photos/video_2022-01-25_19-14-12.mp4)](./Photos/video_2022-01-25_19-14-12.mp4)
 
 
 ## Algorithms
@@ -103,6 +103,11 @@ Let's suppose that the DFA is in STATE_START and the robot is moving forward tow
 Sometimes, 2 or more level of depth is achieved. A corrective state might decide to go into another corrective state. 
 
 Finally, the calibration states are used to calibrate sensors or perform counting actions. The state STATE_GYRO_CAL_BUTTON is used to account for the error accumulated by the gyroscope sensor after one 360 turn. The state STATE_REG_LAP counts the number of laps done by the robot. They do not command the lower layer to perform a specific action but only perform calculations.
+
+The calibration of the gyroscope is of paramount importance for the correct functioning of the robot. 
+
+
+
 
 ## Source code and instructions
 
