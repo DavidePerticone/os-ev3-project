@@ -6,10 +6,9 @@
 #include "ev3_tacho.h"
 #include <stdlib.h>
 
-#define LAP_POS1 0
+#define LAP_POS1 1
 #define LAP_POS2 0
-#define LAP_POS3 1
-
+#define LAP_POS3 0
 #include <unistd.h>
 #define Sleep(msec) usleep((msec)*1000)
 
@@ -21,16 +20,16 @@
 #define OBS_MOTOR_EXT_PORT EXT_PORT__NONE_
 #define IR_CHANNEL 0
 
-#define SPEED_LINEAR 75	  /* Motor speed for linear motion, in percents */
-#define SPEED_CIRCULAR 50 /* ... for circular motion */
+#define SPEED_LINEAR 100	  /* Motor speed for linear motion, in percents */
+#define SPEED_CIRCULAR 80 /* ... for circular motion */
 #define HISTORY_LENGTH 200
 
 #define WHEEL_DIAMETER 5.6
-#define PI 3.141592
+#define PI 3.14
 #define WHEEL_CONSTANT ((PI * WHEEL_DIAMETER) / 360)
 #define DISTANCE_CONSTANT (1 / WHEEL_CONSTANT)
 
-#define _DISTANCE_MAX 260 /* 10 cm */
+#define _DISTANCE_MAX 280 /* 10 cm */
 #define _DISTANCE_MIN 200 /* 5 cm */
 
 #define BACKWARDS_STEP 1 /* 5 cm */
@@ -41,27 +40,19 @@
 #define ANGLE_OUTLIER 360
 #define DISTANCE_OBSTACLE 100
 
-#define LS1 20
-#define SS1 20
-#define LS2 20
-
 #define ANGLE_THRESHOLD 5
 
 /* Threshold distances for each sector */
 #define START_DISTANCE 50
 #define FORWARD1_DISTANCE 15
 #define FORWARD1_DISTANCE_START 40
-#define FORWARD2_DISTANCE 145
-#define FORWARD3_DISTANCE 40
-#define FORWARD4_DISTANCE 40
+#define FORWARD2_DISTANCE 130
 #define FORWARD5_DISTANCE 30
-#define FORWARD6_DISTANCE 120
-
-int max_speed; /* Motor maximal speed */
+#define FORWARD6_DISTANCE 100
 
 #define DEGREE_TO_COUNT(d) ((d)*260 / 90)
 
-int app_alive, n_lap;
+int app_alive, n_lap, max_speed;
 
 int DISTANCE_MAX = _DISTANCE_MAX; /* 10 cm */
 int DISTANCE_MIN = _DISTANCE_MIN; /* 5 cm */
@@ -84,19 +75,14 @@ enum
 	TURN_RIGHT,
 	TURN_ANGLE,
 	TURN_ANGLE_COMPASS,
-	STEP_BACKWARD,
 };
 
 enum
 {
 	STATE_START,
 	STATE_FORWARD1,
-	STATE_STILL,
 	STATE_FORWARD2,
-	STATE_FORWARD3,
-	STATE_FORWARD3_5,
 	STATE_DROP_OBS,
-	STATE_FORWARD4,
 	STATE_FORWARD5,
 	STATE_FORWARD6,
 	STATE_PROXIMITY_CORRECTION,
@@ -112,7 +98,6 @@ int command; /* Command for the 'drive' coroutine */
 int angle;	 /* Angle of rotation */
 int gyro_angle, gyro_zero_angle;
 int proximity;
-float walked_dist;
 int start_degrees_wheel;
 int rel_walk;
 int state, next_state, next_state1;
@@ -122,6 +107,8 @@ int touch_pressed;
 int compass_value;
 int left_right;
 int lateral_tras;
+float walked_dist;
+
 
 uint8_t ir, gyro, touch, compass; /* Sequence numbers of sensors */
 enum
@@ -132,28 +119,6 @@ enum
 uint8_t motor[3] = {DESC_LIMIT, DESC_LIMIT, DESC_LIMIT}; /* Sequence numbers of motors */
 uint8_t obs_motor;
 
-static void _set_mode(int value)
-{
-	if (value == MODE_AUTO)
-	{
-		/* IR measuring of distance */
-		set_sensor_mode_inx(ir, LEGO_EV3_IR_IR_PROX);
-		mode = MODE_AUTO;
-	}
-	else
-	{
-		/* IR remote control */
-		set_sensor_mode_inx(ir, LEGO_EV3_IR_IR_REMOTE);
-		mode = MODE_REMOTE;
-	}
-}
-
-static void _run_forever(int l_speed, int r_speed)
-{
-	set_tacho_speed_sp(motor[L], l_speed);
-	set_tacho_speed_sp(motor[R], r_speed);
-	multi_set_tacho_command_inx(motor, TACHO_RUN_FOREVER);
-}
 
 static void _run_to_rel_pos(int l_speed, int l_pos, int r_speed, int r_pos)
 {
@@ -162,14 +127,6 @@ static void _run_to_rel_pos(int l_speed, int l_pos, int r_speed, int r_pos)
 	set_tacho_position_sp(motor[L], l_pos);
 	set_tacho_position_sp(motor[R], r_pos);
 	multi_set_tacho_command_inx(motor, TACHO_RUN_TO_REL_POS);
-}
-
-static void _run_timed(int l_speed, int r_speed, int ms)
-{
-	set_tacho_speed_sp(motor[L], l_speed);
-	set_tacho_speed_sp(motor[R], r_speed);
-	multi_set_tacho_time_sp(motor, ms);
-	multi_set_tacho_command_inx(motor, TACHO_RUN_TIMED);
 }
 
 static int _is_running(void)
@@ -270,7 +227,7 @@ int get_average_sensor2(uint8_t sensor, int samples, int thresh)
 {
 
 	int array_value[samples];
-	int value = 0, average = 0, i, j;
+	int value = 0, average = 0, i;
 	int moda = 0, counter_m = 0;
 	get_sensor_value(0, sensor, &value);
 	average += value;
@@ -399,7 +356,7 @@ CORO_DEFINE(get_touch)
 CORO_DEFINE(DFA)
 {
 
-	CORO_LOCAL int prev_angle, save_walk, save_walk2, save_walk3, pos, r, d, sign, max_speed, i, save_dist, prev_angle0, bumps, save_angle, f1_walk, f2_walk;
+	CORO_LOCAL int prev_angle, save_walk, save_walk2, save_walk3, pos, max_speed, save_dist, prev_angle0, bumps, save_angle, f1_walk, f2_walk;
 
 	CORO_BEGIN();
 
@@ -469,7 +426,7 @@ CORO_DEFINE(DFA)
 		case STATE_FORWARD2:
 			lateral_tras = 0;
 			printf("STATE_FORWARD2\n");
-			expected_angle = 181 + lap;
+			expected_angle = 183 + lap;
 #if LAP_POS3
 			f2_walk = n_lap == 0 ? 60 : FORWARD2_DISTANCE;
 #else
@@ -543,7 +500,7 @@ CORO_DEFINE(DFA)
 			lateral_tras = 7;
 
 			printf("STATE_FORWARD6\n");
-			expected_angle = 366 + lap;
+			expected_angle = 363 + lap;
 			state = state_forward_no_prox_check(proximity, walked_dist, FORWARD6_DISTANCE, STATE_FORWARD6, STATE_DROP_OBS);
 			rel_walk = (int)(400 * DISTANCE_CONSTANT);
 			command = MOVE_FORWARD;
@@ -692,6 +649,7 @@ CORO_DEFINE(DFA)
 				prev_angle = gyro_angle;
 				printf("Turning this amount : %d = %d/2", (expected_angle - gyro_angle), (expected_angle - gyro_angle) / 2);
 				angle = (expected_angle - gyro_angle) / 2;
+
 				command = TURN_ANGLE;
 				CORO_WAIT(command == MOVE_NONE);
 				/* if angle has not changed, correct proximity */
@@ -720,6 +678,7 @@ CORO_DEFINE(DFA)
 				CORO_WAIT(command == MOVE_NONE);
 				expected_angle = save_angle;
 				state = STATE_ANGLE_CORRECTION;
+				printf("BUG PROX OBS\n");
 				bumps = 0;
 				_get_tacho_position(&pos);
 				start_degrees_wheel += pos - save_walk3;
@@ -760,9 +719,7 @@ CORO_DEFINE(DFA)
 			state = next_state;
 			break;
 
-		case STATE_STILL:
-			command = MOVE_NONE;
-			break;
+		
 
 		default:
 			break;
@@ -827,10 +784,7 @@ CORO_DEFINE(drive)
 			_wait_stopped = 1;
 			break;
 
-		case STEP_BACKWARD:
-			_run_timed(speed_linear, speed_linear, 1000);
-			_wait_stopped = 1;
-			break;
+		
 		}
 		moving = command;
 
@@ -900,7 +854,7 @@ int state_forward(int proximity, float walked, float walked_thresh, int state_wi
 {
 	if (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
 	{
-
+		
 		command = MOVE_NONE;
 		next_state = state_within_thresh;
 		return STATE_ANGLE_CORRECTION;
@@ -913,11 +867,9 @@ int state_forward(int proximity, float walked, float walked_thresh, int state_wi
 		if (proximity >= DISTANCE_MAX || proximity <= DISTANCE_MIN)
 		{
 			next_state = state_after_tresh;
-			left_right = STATE_FORWARD4 == state ? -1 : 1;
 			_get_tacho_position(&start_degrees_wheel);
 			return STATE_PROXIMITY_CORRECTION;
 		}
-		left_right = STATE_FORWARD4 == state ? -1 : 1;
 		_get_tacho_position(&start_degrees_wheel);
 		return state_after_tresh;
 	}
@@ -949,6 +901,17 @@ int state_forward_no_prox_check(int proximity, float walked, float walked_thresh
 {
 	if (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
 	{
+		printf("BUG NO PROX HERE\n");
+		command = MOVE_NONE;
+		next_state = state_within_thresh;
+		return STATE_ANGLE_CORRECTION;
+	}
+
+	
+	if (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
+	{
+		
+		command = MOVE_NONE;
 		next_state = state_within_thresh;
 		return STATE_ANGLE_CORRECTION;
 	}
