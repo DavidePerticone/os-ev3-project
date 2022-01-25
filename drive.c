@@ -304,6 +304,7 @@ int get_average_sensor2(uint8_t sensor, int samples, int thresh)
 	return average;
 }
 
+
 int get_average_sensor(uint8_t sensor, int samples)
 {
 
@@ -943,7 +944,6 @@ int state_forward(int proximity, float walked, float walked_thresh, int state_wi
  * 		- state_within_thresh: current status
  * 		- state_after_tresh: next status
  */
-
 int state_forward_no_prox_check(int proximity, float walked, float walked_thresh, int state_within_thresh, int state_after_tresh)
 {
 	if (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
