@@ -88,7 +88,6 @@ enum
 	STATE_PROXIMITY_CORRECTION,
 	STATE_ANGLE_CORRECTION,
 	STATE_REG_LAP,
-	STATE_PROXIMITY_CORRECTION_BEFORE_ANGLE,
 	STATE_PROXIMITY_OBSTACLE,
 	STATE_GYRO_CAL_BUTTON
 };
@@ -565,14 +564,6 @@ CORO_DEFINE(DFA)
 						break;
 					}
 				}
-				// proximity is updated here
-				/*while (proximity <= DISTANCE_MIN)
-				{
-					printf("Getting further of %d", BACKWARDS_STEP);
-					rel_walk = (int)((-BACKWARDS_STEP) * DISTANCE_CONSTANT);
-					command = MOVE_FORWARD_CORRECTION;
-					CORO_WAIT(command == MOVE_NONE);
-				}*/
 			}
 
 			printf("Exiting proximity correction\n");
@@ -581,29 +572,6 @@ CORO_DEFINE(DFA)
 
 			break;
 
-			/*
-			 * This state is called whenever the robot get stack to an object or whatever item there is
-			 * in the circuit. In this case, the first thing we want to do is gettin further from the obstacle with the
-			 * inner while iteration. After fixing this issue, we move the state to the next one, which is
-			 * the turning one.
-			 */
-
-		case STATE_PROXIMITY_CORRECTION_BEFORE_ANGLE:
-			printf("STATE: PROXIMITY CORRECTION BEFORE ANGLE\nActual proximity: %d\n", proximity);
-			/*	while (proximity <= DISTANCE_MIN_ANGLE_CORR)
-				{
-					while (proximity <= DISTANCE_MIN_ANGLE_CORR)
-					{
-						printf("Getting further of %d", BACKWARDS_STEP);
-						rel_walk = (int)((-BACKWARDS_STEP) * DISTANCE_CONSTANT);
-						command = MOVE_FORWARD_CORRECTION;
-						CORO_WAIT(command == MOVE_NONE);
-					}
-				}*/
-
-			printf("Exiting proximity correction\n");
-			state = next_state;
-			break;
 
 			/*
 			 *  In case the angle data is not comprehended in the range settled in design mode
@@ -803,11 +771,9 @@ CORO_DEFINE(drive)
 
 int main(void)
 {
-	printf("Waiting the EV3 brick online...\n");
 	if (ev3_init() < 1)
 		return (1);
 
-	printf("*** ( EV3 ) Hello! ***\n");
 	ev3_sensor_init();
 	ev3_tacho_init();
 
@@ -824,10 +790,8 @@ int main(void)
 		CORO_CALL(DFA);
 		CORO_CALL(drive);
 
-		// Sleep(50);
 	}
 	ev3_uninit();
-	printf("*** ( EV3 ) Bye! ***\n");
 
 	return (0);
 }
