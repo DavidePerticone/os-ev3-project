@@ -6,6 +6,9 @@
 #include "ev3_tacho.h"
 #include <stdlib.h>
 
+
+
+#define DEBUG 0
 #define LAP_POS1 1
 #define LAP_POS2 0
 #define LAP_POS3 0
@@ -20,7 +23,7 @@
 #define OBS_MOTOR_EXT_PORT EXT_PORT__NONE_
 #define IR_CHANNEL 0
 
-#define SPEED_LINEAR 100	  /* Motor speed for linear motion, in percents */
+#define SPEED_LINEAR 100  /* Motor speed for linear motion, in percents */
 #define SPEED_CIRCULAR 80 /* ... for circular motion */
 #define HISTORY_LENGTH 200
 
@@ -108,7 +111,6 @@ int left_right;
 int lateral_tras;
 float walked_dist;
 
-
 uint8_t ir, gyro, touch, compass; /* Sequence numbers of sensors */
 enum
 {
@@ -117,7 +119,6 @@ enum
 };
 uint8_t motor[3] = {DESC_LIMIT, DESC_LIMIT, DESC_LIMIT}; /* Sequence numbers of motors */
 uint8_t obs_motor;
-
 
 static void _run_to_rel_pos(int l_speed, int l_pos, int r_speed, int r_pos)
 {
@@ -164,7 +165,9 @@ int app_init(void)
 	}
 	else
 	{
+#if DEBUG
 		printf("LEFT motor (%s) is NOT found.\n", ev3_port_name(L_MOTOR_PORT, L_MOTOR_EXT_PORT, 0, s));
+#endif
 		/* Inoperative without left motor */
 		return (0);
 	}
@@ -175,7 +178,9 @@ int app_init(void)
 	}
 	else
 	{
+#if DEBUG
 		printf("RIGHT motor (%s) is NOT found.\n", ev3_port_name(R_MOTOR_PORT, R_MOTOR_EXT_PORT, 0, s));
+#endif
 		/* Inoperative without right motor */
 		return (0);
 	}
@@ -185,28 +190,38 @@ int app_init(void)
 
 	if (ev3_search_sensor(LEGO_EV3_US, &ir, 0))
 	{
+#if DEBUG
 		printf(" use the IR sensor.\n");
+#endif
 	}
 
 	if (ev3_search_sensor(LEGO_EV3_GYRO, &gyro, 0))
 	{
+#if DEBUG
 		printf(" use the GYRO sensor.\n");
+#endif
 	}
 
 	if (ev3_search_sensor(LEGO_EV3_TOUCH, &touch, 0))
 	{
+#if DEBUG
 		printf(" use the TOUCH sensor.\n");
+#endif
 	}
 
 	if (ev3_search_sensor(HT_NXT_COMPASS, &compass, 0))
 	{
+#if DEBUG
 		printf(" use the COMPASS sensor.\n");
+#endif
 	}
 	lap = 0;
 
 	n_lap = 0;
 	left_right = 1;
+#if DEBUG
 	printf("Init State: %d\n", state);
+#endif
 	_get_tacho_position(&start_degrees_wheel);	 /* Reset the travelled distance to 0 */
 	get_sensor_value(0, gyro, &gyro_zero_angle); /* Reset the starting angle to 0 */
 
@@ -231,15 +246,21 @@ int get_average_sensor2(uint8_t sensor, int samples, int thresh)
 	get_sensor_value(0, sensor, &value);
 	average += value;
 
+#if DEBUG
 	printf("\n");
+#endif
 	for (i = 0; i < samples; i++)
 	{
 		get_sensor_value(0, sensor, &value);
 		array_value[i] = value;
 		average = (average + value) / 2;
+#if DEBUG
 		printf(" %d", value);
+#endif
 	}
+#if DEBUG
 	printf("\n");
+#endif
 	for (i = 0; i < samples; i++)
 	{
 		moda = array_value[i];
@@ -259,7 +280,9 @@ int get_average_sensor2(uint8_t sensor, int samples, int thresh)
 			{
 				if (!(array_value[i] > moda - thresh && array_value[i] < moda + thresh))
 				{
+#if DEBUG
 					printf("OUTLIER %d, MODA %d\n", array_value[i], moda);
+#endif
 					array_value[i] = moda;
 				}
 			}
@@ -275,7 +298,9 @@ int get_average_sensor2(uint8_t sensor, int samples, int thresh)
 	}
 
 	average /= samples;
+#if DEBUG
 	printf("AVERAGE %d\n", average);
+#endif
 	return average;
 }
 
@@ -335,7 +360,9 @@ CORO_DEFINE(get_angle)
 		temp_angle = get_average_sensor(gyro, 5);
 		// get_sensor_value(0, gyro, &temp_angle);
 		gyro_angle = -(temp_angle - gyro_zero_angle);
-		// printf("Gyro angle: %d\n", gyro_angle);
+ #if DEBUG
+		printf("Gyro angle: %d\n", gyro_angle);
+#endif
 		CORO_YIELD();
 	}
 	CORO_END();
@@ -366,7 +393,9 @@ CORO_DEFINE(DFA)
 
 		case STATE_START:
 			lateral_tras = 7;
+#if DEBUG
 			printf("STATE START\n");
+#endif
 			expected_angle = 0 + lap;
 			state = state_forward(proximity, walked_dist, START_DISTANCE, STATE_START, STATE_FORWARD1);
 			if (state == STATE_FORWARD1)
@@ -381,11 +410,15 @@ CORO_DEFINE(DFA)
 
 		case STATE_GYRO_CAL_BUTTON:
 
+#if DEBUG
 			printf("STATE_GYRO_CAL_BUTTON\n");
+#endif
 
 			while (!touch_pressed)
 			{
+#if DEBUG
 				printf("touch pressed %d\n", touch_pressed);
+#endif
 
 				rel_walk = (int)(20 * DISTANCE_CONSTANT);
 				command = MOVE_FORWARD_CORRECTION;
@@ -398,13 +431,17 @@ CORO_DEFINE(DFA)
 
 			state = STATE_FORWARD1;
 
+#if DEBUG
 			printf(" exiting STATE_GYRO_CAL_BUTTON\n");
+#endif
 
 			break;
 
 		case STATE_FORWARD1:
 			lateral_tras = 0;
+#if DEBUG
 			printf("STATE_FORWARD1 angle:%d\n", gyro_angle);
+#endif
 			expected_angle = 92 + lap;
 #if LAP_POS1
 			f1_walk = n_lap == 0 ? FORWARD1_DISTANCE_START : FORWARD1_DISTANCE;
@@ -424,7 +461,9 @@ CORO_DEFINE(DFA)
 
 		case STATE_FORWARD2:
 			lateral_tras = 0;
+#if DEBUG
 			printf("STATE_FORWARD2\n");
+#endif
 			expected_angle = 183 + lap;
 #if LAP_POS3
 			f2_walk = n_lap == 0 ? 60 : FORWARD2_DISTANCE;
@@ -444,7 +483,9 @@ CORO_DEFINE(DFA)
 			break;
 
 		case STATE_DROP_OBS:
+#if DEBUG
 			printf("STATE_DROP_OBS\n");
+#endif
 #if LAP_POS3
 			if (n_lap == 1)
 #else
@@ -470,7 +511,9 @@ CORO_DEFINE(DFA)
 				}
 				else
 				{
+#if DEBUG
 					printf("LEGO_EV3_M_MOTOR is NOT found\n");
+#endif
 				}
 			}
 			left_right = -1;
@@ -482,7 +525,9 @@ CORO_DEFINE(DFA)
 		case STATE_FORWARD5:
 			lateral_tras = 0;
 
+#if DEBUG
 			printf("STATE_FORWARD5\n");
+#endif
 			expected_angle = 270 + lap;
 			state = state_forward(proximity, walked_dist, FORWARD5_DISTANCE, STATE_FORWARD5, STATE_FORWARD6);
 			if (state == STATE_FORWARD6)
@@ -498,7 +543,9 @@ CORO_DEFINE(DFA)
 		case STATE_FORWARD6:
 			lateral_tras = 7;
 
+#if DEBUG
 			printf("STATE_FORWARD6\n");
+#endif
 			expected_angle = 363 + lap;
 			state = state_forward_no_prox_check(proximity, walked_dist, FORWARD6_DISTANCE, STATE_FORWARD6, STATE_DROP_OBS);
 			rel_walk = (int)(400 * DISTANCE_CONSTANT);
@@ -512,7 +559,9 @@ CORO_DEFINE(DFA)
 			 */
 			if (state == STATE_DROP_OBS)
 			{
+#if DEBUG
 				printf("Entering state forward move none\n");
+#endif
 				command = MOVE_NONE;
 				left_right = 1;
 			}
@@ -520,7 +569,9 @@ CORO_DEFINE(DFA)
 
 		/* Lap is finished, set the state to START*/
 		case STATE_REG_LAP:
+#if DEBUG
 			printf("FINISHED LAP %d\n", lap / 360);
+#endif
 			state = STATE_GYRO_CAL_BUTTON;
 			lap += 360;
 			n_lap++;
@@ -545,14 +596,18 @@ CORO_DEFINE(DFA)
 			 */
 
 		case STATE_PROXIMITY_CORRECTION:
+#if DEBUG
 			printf("STATE: PROXIMITY CORRECTION\nActual proximity: %d\n", proximity);
+#endif
 			while (proximity >= DISTANCE_MAX /* || proximity <= DISTANCE_MIN*/)
 			{
 
 				while (proximity >= DISTANCE_MAX)
 				{
 					save_dist = proximity;
+#if DEBUG
 					printf("Getting closer of %d\n proximity %d, DISTANCE_MAX %d\n", (proximity - DISTANCE_MAX) / 10, proximity, DISTANCE_MAX);
+#endif
 					rel_walk = (int)(FORWARD_STEP * DISTANCE_CONSTANT);
 					if (rel_walk == 0)
 						rel_walk = 1;
@@ -566,12 +621,13 @@ CORO_DEFINE(DFA)
 				}
 			}
 
+#if DEBUG
 			printf("Exiting proximity correction\n");
+#endif
 			_get_tacho_position(&start_degrees_wheel);
 			state = next_state;
 
 			break;
-
 
 			/*
 			 *  In case the angle data is not comprehended in the range settled in design mode
@@ -604,7 +660,9 @@ CORO_DEFINE(DFA)
 			 */
 
 		case STATE_ANGLE_CORRECTION:
+#if DEBUG
 			printf("STATE: ANGLE CORRECTION\nActual angle: %d, Expected angle: %d\n", gyro_angle, expected_angle);
+#endif
 
 			_get_tacho_position(&save_walk);
 
@@ -615,7 +673,9 @@ CORO_DEFINE(DFA)
 			{
 				prev_angle0 = prev_angle;
 				prev_angle = gyro_angle;
+#if DEBUG
 				printf("Turning this amount : %d = %d/2", (expected_angle - gyro_angle), (expected_angle - gyro_angle) / 2);
+#endif
 				angle = (expected_angle - gyro_angle) / 2;
 
 				command = TURN_ANGLE;
@@ -623,22 +683,30 @@ CORO_DEFINE(DFA)
 				/* if angle has not changed, correct proximity */
 				if (prev_angle0 == prev_angle && /*prev_angle == (gyro_angle - 1) || prev_angle == (gyro_angle + 1) ||*/ prev_angle == (gyro_angle))
 				{
+#if DEBUG
 					printf("BUG HEREEE");
+#endif
 					rel_walk = (int)((-5) * DISTANCE_CONSTANT);
 					command = MOVE_FORWARD_CORRECTION;
 					CORO_WAIT(command == MOVE_NONE);
 				}
 			}
+#if DEBUG
 			printf("Exiting angle correction\n");
+#endif
 			_get_tacho_position(&save_walk2);
 			start_degrees_wheel = start_degrees_wheel + (save_walk2 - save_walk);
+#if DEBUG
 			printf("AXLE DISTANCE2 : AXLE DISTANCE %d %g\n", start_degrees_wheel, walked_dist * DISTANCE_CONSTANT);
+#endif
 
 			state = next_state;
 			break;
 
 		case STATE_PROXIMITY_OBSTACLE:
+#if DEBUG
 			printf("STATE: STATE_PROXIMITY_OBSTACLE\n");
+#endif
 			if (bumps == 1)
 			{
 				rel_walk = (int)((lateral_tras)*DISTANCE_CONSTANT);
@@ -646,7 +714,9 @@ CORO_DEFINE(DFA)
 				CORO_WAIT(command == MOVE_NONE);
 				expected_angle = save_angle;
 				state = STATE_ANGLE_CORRECTION;
+#if DEBUG
 				printf("BUG PROX OBS\n");
+#endif
 				bumps = 0;
 				_get_tacho_position(&pos);
 				start_degrees_wheel += pos - save_walk3;
@@ -661,12 +731,16 @@ CORO_DEFINE(DFA)
 
 				while (proximity <= DISTANCE_OBSTACLE)
 				{
+#if DEBUG
 					printf("Getting further from obstacle %d", BACKWARDS_STEP);
+#endif
 					rel_walk = (int)((-10) * DISTANCE_CONSTANT);
 					command = MOVE_FORWARD_CORRECTION;
 					CORO_WAIT(command == MOVE_NONE);
 					bumps++;
+#if DEBUG
 					printf("BUMPS: %d \n", bumps);
+#endif
 					if (bumps == 1)
 					{
 						break;
@@ -676,7 +750,9 @@ CORO_DEFINE(DFA)
 				if (bumps == 1)
 				{
 					save_angle = gyro_angle;
+#if DEBUG
 					printf("LEFT RIGHT %d", left_right);
+#endif
 					expected_angle = gyro_angle + 90 * left_right;
 					next_state1 = next_state;
 					next_state = STATE_PROXIMITY_OBSTACLE;
@@ -686,8 +762,6 @@ CORO_DEFINE(DFA)
 			}
 			state = next_state;
 			break;
-
-		
 
 		default:
 			break;
@@ -713,14 +787,18 @@ CORO_DEFINE(drive)
 		/* Waiting new command */
 
 		CORO_WAIT(moving != command);
+#if DEBUG
 		printf("Moving %d, Command %d\n", moving, command);
+#endif
 
 		_wait_stopped = 0;
 		switch (command)
 		{
 		case MOVE_NONE:
 			_stop();
+#if DEBUG
 			printf("Stop\n");
+#endif
 			_wait_stopped = 1;
 			break;
 
@@ -730,7 +808,9 @@ CORO_DEFINE(drive)
 			break;
 
 		case MOVE_FORWARD:
+#if DEBUG
 			printf("MOVE_FORward: rel walk %d\n", rel_walk);
+#endif
 			_run_to_rel_pos(speed_linear, rel_walk, speed_linear, rel_walk);
 
 			break;
@@ -751,8 +831,6 @@ CORO_DEFINE(drive)
 			_run_to_rel_pos(speed_circular, DEGREE_TO_COUNT(-angle), speed_circular, DEGREE_TO_COUNT(angle));
 			_wait_stopped = 1;
 			break;
-
-		
 		}
 		moving = command;
 
@@ -760,8 +838,12 @@ CORO_DEFINE(drive)
 		{
 			/* Waiting the command is completed */
 			CORO_WAIT(!_is_running());
+#if DEBUG
 			printf("is running exit\n");
+#endif
+#if DEBUG
 			printf("Moving %d, Command %d\n\n", moving, command);
+#endif
 
 			command = moving = MOVE_NONE;
 		}
@@ -789,7 +871,6 @@ int main(void)
 		CORO_CALL(get_touch);
 		CORO_CALL(DFA);
 		CORO_CALL(drive);
-
 	}
 	ev3_uninit();
 
@@ -818,13 +899,15 @@ int state_forward(int proximity, float walked, float walked_thresh, int state_wi
 {
 	if (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
 	{
-		
+
 		command = MOVE_NONE;
 		next_state = state_within_thresh;
 		return STATE_ANGLE_CORRECTION;
 	}
 
+#if DEBUG
 	printf("Walked %f\n", walked);
+#endif
 	if (walked >= walked_thresh)
 	{
 		command = MOVE_NONE;
@@ -865,16 +948,17 @@ int state_forward_no_prox_check(int proximity, float walked, float walked_thresh
 {
 	if (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
 	{
+#if DEBUG
 		printf("BUG NO PROX HERE\n");
+#endif
 		command = MOVE_NONE;
 		next_state = state_within_thresh;
 		return STATE_ANGLE_CORRECTION;
 	}
 
-	
 	if (gyro_angle - expected_angle < -ANGLE_THRESHOLD || gyro_angle - expected_angle > ANGLE_THRESHOLD)
 	{
-		
+
 		command = MOVE_NONE;
 		next_state = state_within_thresh;
 		return STATE_ANGLE_CORRECTION;
