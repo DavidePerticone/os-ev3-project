@@ -28,7 +28,8 @@ Some pictures to understand better the architecture of the robot.
 ![](./Photos/photo_2022-01-25_19-01-50.jpg)
 
 In the video below you can see the **beast** in action.
-[![Alt text](./Photos/video_2022-01-25_19-14-12.mp4)](./Photos/video_2022-01-25_19-14-12.mp4)
+
+https://user-images.githubusercontent.com/49166275/151141489-8d96acca-17ba-4d58-905b-cba52681f4e7.mp4
 
 
 ## Algorithms
