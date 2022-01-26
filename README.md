@@ -55,42 +55,31 @@ The top layer implements the logic of the program, and the only coroutine presen
 Indeed, the coroutine implements a sort of DFA that :
 
 - given the state in which it is now, sets global variables so that the lower layer executes the actions corresponding to that state
-
 - given the values read by the lower layer, moves to the next state accordingly. 
 
-  
 
-  There are mainly three categories of states:
+  There are mainly **three** categories of states:
 
-- States identifying major parts of the circuit (first left turn, first straight corridor, etc...):
+1. States identifying major parts of the circuit (first left turn, first straight corridor, etc...):
 
-  ​    STATE_START
+  * STATE_START
+  * STATE_FORWARD1
+  * STATE_FORWARD2
+  * STATE_DROP_OBS
+  * STATE_FORWARD5
+  * STATE_FORWARD6
 
-  ​    STATE_FORWARD1
+2. States identifying corrective actions (when the angle needs to be corrected, when the robot needs to go backward, etc...)
 
-  ​    STATE_FORWARD2
+  * STATE_PROXIMITY_CORRECTION  
+  * STATE_ANGLE_CORRECTION
+  * STATE_PROXIMITY_CORRECTION_BEFORE_ANGLE
+  * STATE_PROXIMITY_OBSTACLE
 
-  ​    STATE_DROP_OBS
+3. States identifying calibration actions:
 
-  ​    STATE_FORWARD5
-
-  ​    STATE_FORWARD6
-
-- States identifying corrective actions (when the angle needs to be corrected, when the robot needs to go backward, etc...)
-
-  ​	STATE_PROXIMITY_CORRECTION
-
-  ​    STATE_ANGLE_CORRECTION
-
-  ​	STATE_PROXIMITY_CORRECTION_BEFORE_ANGLE
-
-  ​    STATE_PROXIMITY_OBSTACLE
-
-- States identifying calibration actions:
-
-​			STATE_GYRO_CAL_BUTTON
-
-​			STATE_REG_LAP
+  * STATE_GYRO_CAL_BUTTON
+  * STATE_REG_LAP
 
 Each state monitors certain sensor values and sets global variables according to the action it wants to perform. In this way, while the DFA is in a certain state, the corresponding action is performed and the next state is evaluated based on the value of (some) sensors. The next state could be the same in which the DFA is at that moment or another one.
 
@@ -104,9 +93,11 @@ Sometimes, 2 or more level of depth is achieved. A corrective state might decide
 
 Finally, the calibration states are used to calibrate sensors or perform counting actions. The state STATE_GYRO_CAL_BUTTON is used to account for the error accumulated by the gyroscope sensor after one 360 turn. The state STATE_REG_LAP counts the number of laps done by the robot. They do not command the lower layer to perform a specific action but only perform calculations.
 
-The calibration of the gyroscope is of paramount importance for the correct functioning of the robot. 
+The calibration of the gyroscope is of paramount importance for the correct functioning of the robot. We arrived to this conclusion because the compass sensor is an unreliable sensor in the setting of the race. Although the compass sensor is precise, it relies on the Earth magnetic field to work properly. However the race will happen in the EURECOM environment, and in particular on top of a thick piece of metal. The effect of this sheet is a magnetic isolation of the Earth field and probably the generation of small magnetic fields due to the interaction with the electric fields in the surrounding environment.
 
+Since we don't have any stable point of reference now that the compass sensor is out of discussion, and since the gyroscope on itself is not precise enough to make two laps (especially when hitting or being hit by something) we adopted a new strategy to calibrate the gyroscope at every lap. The only certainty that we have in the circuit is the straightness of the walls, so we decided to perform after each completed lap a calculated *\*bump\** into the wall after the finish line. What happens is that the little arms on either side of the front of the robot (see pictures in the [section above](#description-of-the-architecture-of-the-robot)) ensure that the robot is facing the wall as straight as possible, and the protruding button detects that the wall has been hit only when the robot is completely against it.
 
+With both these conditions satisfied, we virtually reset the gyro, setting the current angle as the new zero angle and we continue with the next lap. This calibration is done in the state `STATE_GYRO_CAL_BUTTON`.
 
 
 ## Source code and instructions
